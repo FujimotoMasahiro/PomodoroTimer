@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ポモドーロタイマー</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+
+<body>
+    <div class="container mt-5">
+        <div class="row">
+            <!-- Timer Section -->
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <h1 id="timer" class="display-4">25:00</h1>
+                        <p id="status" class="h5">作業中</p>
+                        <button id="start-btn" class="btn btn-primary btn-lg">スタート</button>
+                        <button id="pause-btn" class="btn btn-secondary btn-lg">一時停止</button>
+                        <button id="restart-btn" class="btn btn-secondary btn-lg">再開</button>
+                        <button id="reset-btn" class="btn btn-danger btn-lg">リセット</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar Section -->
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">設定</h5>
+                        <form id="settings-form">
+                            <div class="mb-3">
+                                <label for="work-duration" class="form-label">作業時間 (分)</label>
+                                <input type="number" id="work-duration" class="form-control" value="25" min="1">
+                            </div>
+                            <div class="mb-3">
+                                <label for="break-duration" class="form-label">休憩時間 (分)</label>
+                                <input type="number" id="break-duration" class="form-control" value="5" min="1">
+                            </div>
+                            <div class="mb-3">
+                                <label for="long-break-duration" class="form-label">長時間休憩時間 (分)</label>
+                                <input type="number" id="long-break-duration" class="form-control" value="15" min="1">
+                            </div>
+                            <div class="mb-3">
+                                <label for="long-break-frequency" class="form-label">長時間休憩の頻度 (ポモドーロ数)</label>
+                                <input type="number" id="long-break-frequency" class="form-control" value="4" min="1">
+                            </div>
+                            <div class="form-check">
+                                <input type="checkbox" id="auto-start-work" class="form-check-input" checked>
+                                <label for="auto-start-work" class="form-check-label">次の作業を自動スタート</label>
+                            </div>
+                            <div class="form-check">
+                                <input type="checkbox" id="auto-start-break" class="form-check-input" checked>
+                                <label for="auto-start-break" class="form-check-label">次の休憩を自動スタート</label>
+                            </div>
+                            <div class="form-check">
+                                <input type="checkbox" id="mute-notifications" class="form-check-input">
+                                <label for="mute-notifications" class="form-check-label">通知をミュート</label>
+                            </div>
+                            <button type="submit" class="btn btn-success mt-3">設定を保存</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <audio id="audioPlayer" src="music/Novoice.mp3" loop controls></audio>
+    <audio id="audioPlayer2" src="music/目覚まし時計のアラーム.mp3" controls></audio>
+    <audio id="audioPlayer3" src="music/Drifting Clouds.mp3" loop controls></audio>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- JavaScript Logic -->
+    <script type="module" src="PomodoroTimerController.js"></script>
+    <!-- <script type="module" src="MusicManager.js"></script> -->
+    </script>
+</body>
+
+</html>
