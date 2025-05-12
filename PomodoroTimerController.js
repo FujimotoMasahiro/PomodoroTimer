@@ -4,7 +4,7 @@ import { MusicManager } from "./MusicManager.js";
 const STATUS_ENUM = {
     INITIAL: {
         rawValue: 1,
-        string: "初期",
+        string: "開始",
     },
     WORKING: {
         rawValue: 2,
@@ -42,10 +42,14 @@ const MUSIC_MANAGER3 = new MusicManager(document.getElementById('audioPlayer3'))
 const timerElement = document.getElementById('timer');
 const statusElement = document.getElementById('status');
 
+// ポモドーロ回数設定
+const cyclesElement = document.getElementById('cycles');
+
 // ボタンのnode取得
 const startButton = document.getElementById('start-btn'); // スタートボタン
 const pauseButton = document.getElementById('pause-btn'); // 一時停止ボタン
 const restartButton = document.getElementById('restart-btn'); // 再開ボタン
+const skipButton = document.getElementById('skip-btn'); // スキップボタン
 const resetButton = document.getElementById('reset-btn'); // リセットボタン
 
 // セッティングフォーム
@@ -53,9 +57,9 @@ const settingsForm = document.getElementById('settings-form');
 
 const oneSecond = 1000;
 const oneMinits = 60;
-let WORKTIME_MINUTE = 25
-let BREAKTIME_MINUTE = 5
-let LOG_BREAKTIME_MINUTE = 15
+let WORKTIME_MINUTE = 25;
+let BREAKTIME_MINUTE = 5;
+let LOG_BREAKTIME_MINUTE = 15;
 
 let workDuration = WORKTIME_MINUTE * oneMinits; // 初期値（秒）
 let breakDuration = BREAKTIME_MINUTE * oneMinits; // 初期値（秒）
@@ -87,6 +91,7 @@ function updateTimerDisplay(time) {
 // タイマーのスタート
 function startWorkingTimer() {
 
+    timer();
     intervalId = setInterval(timer, oneSecond);
 
     // 音楽スタート
@@ -99,12 +104,13 @@ function startWorkingTimer() {
 // タイマーのスタート
 function startBreakingTimer() {
 
+    timer();
     intervalId = setInterval(timer, oneSecond);
 
     // 音楽スタート
-    MUSIC_MANAGER.play();
+    MUSIC_MANAGER.stop();
     MUSIC_MANAGER2.play();
-    MUSIC_MANAGER3.stop();
+    MUSIC_MANAGER3.play();
 
 }
 
@@ -117,47 +123,30 @@ function resetTimer() {
 function timer() {
     if (time <= 0) {
         clearInterval(intervalId);
-        cycles++;
 
-        // 長時間休憩のチェック
-        if (cycles % longBreakFrequency === 0) {
-            status = STATUS_ENUM.LONGBREAKING.rawValue;
-            statusElement.textContent = STATUS_ENUM.LONGBREAKING.string;
-            // if (document.getElementById('auto-start-break').checked) {
-            //     startBreakingTimer();
-            // }
-        } else {
-            // スイッチ文
-            switch (status) {
-                case STATUS_ENUM.INITIAL.rawValue:
-                    // 初期→作業中
-                    status = STATUS_ENUM.WORKING.rawValue;
-                    statusElement.textContent = STATUS_ENUM.WORKING.string;
-                    break;
-                case STATUS_ENUM.WORKING.rawValue:
+        // スイッチ文
+        switch (status) {
+            case STATUS_ENUM.INITIAL.rawValue:
+            case STATUS_ENUM.BREAKING.rawValue:
+            case STATUS_ENUM.LONGBREAKING.rawValue:
+                // 開始→作業中
+                status = STATUS_ENUM.WORKING.rawValue;
+                statusElement.textContent = STATUS_ENUM.WORKING.string;
+                break;
+            case STATUS_ENUM.WORKING.rawValue:
+                // 長時間休憩のチェック
+                if (cycles % longBreakFrequency === 0) {
+                    // 作業中→長時間休憩中
+                    status = STATUS_ENUM.LONGBREAKING.rawValue;
+                    statusElement.textContent = STATUS_ENUM.LONGBREAKING.string;
+                } else {
                     // 作業中→休憩中
                     status = STATUS_ENUM.BREAKING.rawValue;
                     statusElement.textContent = STATUS_ENUM.BREAKING.string;
-                    // if (document.getElementById('auto-start-break').checked) {
-                    //     startBreakingTimer();
-                    // }
-                    break;
-                case STATUS_ENUM.BREAKING.rawValue:
-                    // 休憩中→作業中
-                    status = STATUS_ENUM.WORKING.rawValue;
-                    statusElement.textContent = STATUS_ENUM.WORKING.string;
-                    break;
-                case STATUS_ENUM.LONGBREAKING.rawValue:
-                    // 長時間休憩中→作業中
-                    status = STATUS_ENUM.WORKING.rawValue;
-                    statusElement.textContent = STATUS_ENUM.WORKING.string;
-                    // if (document.getElementById('auto-start-work').checked) {
-                    //     startWorkingTimer();
-                    // }
-                    break;
-                default:
-                    break;
-            }
+                }
+                break;
+            default:
+                break;
         }
 
     } else {
@@ -174,42 +163,49 @@ function buttonDisplayUpdate() {
             startButton.style.display = 'inline-block';
             pauseButton.style.display = 'none';
             restartButton.style.display = 'none';
+            skipButton.style.display = 'none';
             resetButton.style.display = 'none';
             break;
         case STATUS_ENUM.WORKING.rawValue:
             startButton.style.display = 'none';
             pauseButton.style.display = 'inline-block';
             restartButton.style.display = 'none';
+            skipButton.style.display = 'inline-block';
             resetButton.style.display = 'inline-block';
             break;
         case STATUS_ENUM.WORKING_POSE.rawValue:
             startButton.style.display = 'none';
             pauseButton.style.display = 'none';
             restartButton.style.display = 'inline-block';
+            skipButton.style.display = 'inline-block';
             resetButton.style.display = 'inline-block';
             break;
         case STATUS_ENUM.BREAKING.rawValue:
             startButton.style.display = 'none';
             pauseButton.style.display = 'inline-block';
             restartButton.style.display = 'none';
+            skipButton.style.display = 'inline-block';
             resetButton.style.display = 'inline-block';
             break;
         case STATUS_ENUM.BREAKING_POSE.rawValue:
             startButton.style.display = 'none';
             pauseButton.style.display = 'none';
             restartButton.style.display = 'inline-block';
+            skipButton.style.display = 'inline-block';
             resetButton.style.display = 'inline-block';
             break;
         case STATUS_ENUM.LONGBREAKING.rawValue:
             startButton.style.display = 'none';
             pauseButton.style.display = 'inline-block';
             restartButton.style.display = 'none';
+            skipButton.style.display = 'inline-block';
             resetButton.style.display = 'inline-block';
             break;
         case STATUS_ENUM.LONGBREAKING_POSE.rawValue:
             startButton.style.display = 'none';
             pauseButton.style.display = 'none';
             restartButton.style.display = 'inline-block';
+            skipButton.style.display = 'inline-block';
             resetButton.style.display = 'inline-block';
             break;
         default:
@@ -237,30 +233,16 @@ function timerDisplayUpdate() {
     }
 }
 
-// 自動スタートの確認
-function autoStartCheck() {
-    switch (status) {
-        case STATUS_ENUM.WORKING.rawValue:
-            // 作業中
-            // if (document.getElementById('auto-start-break').checked) {
-            //     startBreakingTimer();
-            // }
-            break;
-        case STATUS_ENUM.BREAKING.rawValue:
-            // 休憩中
-            // if (document.getElementById('auto-start-work').checked) {
-            //     startWorkingTimer();
-            // }
-            break;
-        case STATUS_ENUM.LONGBREAKING.rawValue:
-            // 長時間休憩中
-            // if (document.getElementById('auto-start-work').checked) {
-            //     startWorkingTimer();
-            // }
-            break;
-        default:
-            break;
-    }
+// ポモドーロ回数の表示切り替え
+function countupCycles() {
+    cycles++;
+    cyclesElement.textContent = cycles;
+}
+
+// ポモドーロ回数の表示切り替え
+function resetCycles() {
+    cycles = 0;
+    cyclesElement.textContent = cycles;
 }
 
 // 設定の保存
@@ -279,6 +261,7 @@ startButton.addEventListener('click', function () {
     status = STATUS_ENUM.WORKING.rawValue;
     statusElement.textContent = STATUS_ENUM.WORKING.string;
 });
+
 pauseButton.addEventListener('click', function () {
     // ステータス→一時停止中
     switch (status) {
@@ -297,7 +280,14 @@ pauseButton.addEventListener('click', function () {
         default:
             break;
     }
+
+    // 音楽ストップ
+    MUSIC_MANAGER.stop();
+    MUSIC_MANAGER2.stop();
+    MUSIC_MANAGER3.stop();
+
 });
+
 restartButton.addEventListener('click', function () {
     // ステータス→再開
     switch (status) {
@@ -317,10 +307,23 @@ restartButton.addEventListener('click', function () {
             break;
     }
 });
+
+skipButton.addEventListener('click', function () {
+    time = 0;
+    clearInterval(intervalId);
+    timer();
+});
+
 resetButton.addEventListener('click', function () {
-    // ステータス→初期
+    // ステータス→開始
+    resetCycles();
     status = STATUS_ENUM.INITIAL.rawValue;
     statusElement.textContent = STATUS_ENUM.INITIAL.string;
+
+    // 音楽ストップ
+    MUSIC_MANAGER.stop();
+    MUSIC_MANAGER2.stop();
+    MUSIC_MANAGER3.stop();
 });
 
 // ステータスの変更を監視
@@ -330,26 +333,34 @@ const observer = new MutationObserver((mutationsList) => {
         if (mutation.type === 'childList') {
             // ここに変更時の処理を記述
             buttonDisplayUpdate();
-            timerDisplayUpdate();
             clearInterval(intervalId);
             switch (status) {
                 case STATUS_ENUM.INITIAL.rawValue:
                     break;
                 case STATUS_ENUM.WORKING.rawValue:
                     // 直前のステータスが一時停止中の場合
-                    if (mutation.removedNodes[0].textContent === STATUS_ENUM.WORKING_POSE.string) {
-                        // タイマー再開
+                    if (mutation.removedNodes[0].textContent !== STATUS_ENUM.WORKING_POSE.string) {
+                        countupCycles();
+                        timerDisplayUpdate();
                     }
                     startWorkingTimer();
                     break;
                 case STATUS_ENUM.WORKING_POSE.rawValue:
                     break;
                 case STATUS_ENUM.BREAKING.rawValue:
+                    // 直前のステータスが一時停止中の場合
+                    if (mutation.removedNodes[0].textContent !== STATUS_ENUM.BREAKING_POSE.string) {
+                        timerDisplayUpdate();
+                    }
                     startBreakingTimer();
                     break;
                 case STATUS_ENUM.BREAKING_POSE.rawValue:
                     break;
                 case STATUS_ENUM.LONGBREAKING.rawValue:
+                    // 直前のステータスが一時停止中の場合
+                    if (mutation.removedNodes[0].textContent !== STATUS_ENUM.LONGBREAKING_POSE.string) {
+                        timerDisplayUpdate();
+                    }
                     startBreakingTimer();
                     break;
                 case STATUS_ENUM.LONGBREAKING_POSE.rawValue:
@@ -372,8 +383,3 @@ observer.observe(statusElement,
 );
 
 main();
-
-
-setTimeout(() => {
-    statusElement.textContent = 'hoge';
-}, 2000);
