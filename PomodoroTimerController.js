@@ -59,7 +59,7 @@ const oneSecond = 1000;
 const oneMinits = 60;
 let WORKTIME_MINUTE = 25;
 let BREAKTIME_MINUTE = 5;
-let LOG_BREAKTIME_MINUTE = 15;
+let LOG_BREAKTIME_MINUTE = 5;
 
 let workDuration = WORKTIME_MINUTE * oneMinits; // 初期値（秒）
 let breakDuration = BREAKTIME_MINUTE * oneMinits; // 初期値（秒）
