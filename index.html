@@ -41,14 +41,38 @@
                         <button id="reset-btn" class="btn btn-danger btn-lg" style="display:none;">リセット</button>
                     </div>
                 </div>
-                <p class="text-danger mt-3 mb-0">※BGMの音量を0にするとブラウザの仕様でタイマーが止まってしまいます。<br>音量を完全に0にせずに使用してください。</p>
-                <div class="col-md-4 mt-2">
-                    <p id="status" class="h5">作業中BGM</p>
-                    <audio id="audioPlayer" src="music/Novoice.mp3" loop controls></audio>
-                    <p id="status" class="h5">タイマー音</p>
-                    <audio id="audioPlayer2" src="music/目覚まし時計のアラーム.mp3" controls></audio>
-                    <p id="status" class="h5">休憩中BGM</p>
-                    <audio id="audioPlayer3" src="music/Drifting Clouds.mp3" loop controls></audio>
+                <p class="text-danger mt-3 mb-2 small">※BGMの音量を0にするとブラウザの仕様でタイマーが止まってしまいます。音量を完全に0にせずに使用してください。</p>
+
+                <!-- 現在の音源 (アクティブなものだけ表示) -->
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5 class="card-title mb-0">現在の音源: <span id="active-source-label" class="text-primary">作業中BGM</span></h5>
+                            <span id="active-phase-badge" class="badge bg-secondary">停止中</span>
+                        </div>
+
+                        <div id="workBgmWrapper" class="active-source-content">
+                            <audio id="audioPlayer" src="music/Novoice.mp3" loop controls class="w-100"></audio>
+                        </div>
+                        <div id="breakBgmWrapper" class="active-source-content" style="display:none;">
+                            <audio id="audioPlayer3" src="music/Drifting Clouds.mp3" loop controls class="w-100"></audio>
+                        </div>
+                        <div id="voicyWrapper" class="active-source-content" style="display:none;">
+                            <div id="voicyContainer"></div>
+                            <p class="text-muted small mb-0 mt-2">Voicy プレイヤー内の再生ボタンを 1 回押してください。</p>
+                        </div>
+                        <div id="noneWrapper" class="active-source-content" style="display:none;">
+                            <p class="text-muted mb-0 py-3 text-center">音源は使用されていません</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- タイマー音 (常時表示) -->
+                <div class="card mb-3">
+                    <div class="card-body py-2">
+                        <h6 class="card-subtitle text-muted mb-2">タイマー音 (フェーズ切替時)</h6>
+                        <audio id="audioPlayer2" src="music/目覚まし時計のアラーム.mp3" controls class="w-100"></audio>
+                    </div>
                 </div>
             </div>
 
@@ -57,7 +81,34 @@
                 <div class="card bg-secondary-subtle">
                     <div class="card-body">
                         <h5 class="card-title">設定</h5>
-                        <p class="text-info">今後バージョンアップにて使用可能になる予定です。</p>
+
+                        <h6 class="mt-2">音源設定</h6>
+                        <div class="mb-3">
+                            <label for="work-source" class="form-label">作業中の音源</label>
+                            <select id="work-source" class="form-select">
+                                <option value="bgm">BGM (Novoice.mp3)</option>
+                                <option value="voicy">Voicy</option>
+                                <option value="none">音なし</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="break-source" class="form-label">休憩中の音源</label>
+                            <select id="break-source" class="form-select">
+                                <option value="bgm">BGM (Drifting Clouds.mp3)</option>
+                                <option value="voicy">Voicy</option>
+                                <option value="none">音なし</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="voicy-url" class="form-label">Voicy URL</label>
+                            <input type="url" id="voicy-url" class="form-control"
+                                value="https://voicy.jp/embed/channel/941"
+                                placeholder="https://voicy.jp/embed/channel/941">
+                            <div class="form-text">Voicy 埋め込み URL (既定は西野亮廣チャンネル)</div>
+                        </div>
+                        <hr>
+
+                        <p class="text-info">以下は今後バージョンアップにて使用可能になる予定です。</p>
                         <form id="settings-form">
                             <div class="mb-3">
                                 <label for="work-duration" class="form-label">作業時間 (分)</label>

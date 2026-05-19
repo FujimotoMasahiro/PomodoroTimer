@@ -157,3 +157,56 @@ export class MusicManager {
 // musicManager.setMusic("work", "work-music.mp3");
 // musicManager.setVolume("work", 0.8);
 // musicManager.play("work");
+
+/**
+ * VoicyManagerクラス
+ *
+ * Voicy の埋め込み iframe を動的に挿入/削除して再生・停止を制御する。
+ * Voicy はクロスオリジン埋め込みで postMessage API を公開していないため、
+ * 「停止」は iframe を DOM から外すことで実現する (audio が要素ごと破棄される)。
+ *
+ * Voicy プレイヤーの内部コンテンツは固定幅 (デスクトップレイアウト) で、
+ * iframe を width=100% にしても中身が横スクロールしてしまう。
+ * そこで iframe に「自然幅」を物理的に与え、CSS transform: scale() でコンテナ幅に縮小表示する。
+ */
+export class VoicyManager {
+    constructor(containerElement) {
+        this.container = containerElement;
+        this.currentUrl = null;
+        // iframe は Voicy デスクトップレイアウトが余裕で収まる物理幅を与え、
+        // CSS zoom でコンテナ幅に合わせて縮小表示する。
+        this.naturalWidth = 1200;
+        this.naturalHeight = 400;
+        this._resizeHandler = () => this.rescale();
+        if (typeof window !== 'undefined') {
+            window.addEventListener('resize', this._resizeHandler);
+        }
+    }
+
+    play(url) {
+        if (!this.container || !url) return;
+        if (this.currentUrl === url && this.container.querySelector('iframe')) return;
+        this.container.style.overflow = 'hidden';
+        this.container.innerHTML = `<iframe src="${url}" allow="autoplay; encrypted-media" frameborder="0" title="Voicy Player" style="border:0; display:block;"></iframe>`;
+        this.currentUrl = url;
+        this.rescale();
+    }
+
+    rescale() {
+        if (!this.container) return;
+        const iframe = this.container.querySelector('iframe');
+        if (!iframe) return;
+        const containerWidth = this.container.clientWidth || this.naturalWidth;
+        const zoomLevel = containerWidth / this.naturalWidth;
+        iframe.style.width = this.naturalWidth + 'px';
+        iframe.style.height = this.naturalHeight + 'px';
+        iframe.style.zoom = zoomLevel;
+    }
+
+    stop() {
+        if (!this.container) return;
+        this.container.innerHTML = '';
+        this.container.style.overflow = '';
+        this.currentUrl = null;
+    }
+}
