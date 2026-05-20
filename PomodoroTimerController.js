@@ -321,6 +321,41 @@ function scheduleUrlRefresh() {
     _urlRefreshTimer = setTimeout(refreshActiveSourceIfPlaying, 300);
 }
 
+// ----------------------------------------------------------------------------
+// 画面スリープ防止 (Screen Wake Lock API)
+// タイマー再生中 (WORKING / BREAKING / LONGBREAKING) は wake lock を取得し、
+// 一時停止 / リセット / 初期状態では解放する。タブが非表示になると wake lock は
+// ブラウザにより自動 release されるため、visibilitychange で再取得する。
+// ----------------------------------------------------------------------------
+let wakeLockSentinel = null;
+
+async function acquireWakeLock() {
+    if (!('wakeLock' in navigator)) return;
+    if (wakeLockSentinel) return;
+    try {
+        wakeLockSentinel = await navigator.wakeLock.request('screen');
+        wakeLockSentinel.addEventListener('release', () => {
+            wakeLockSentinel = null;
+        });
+    } catch (_) {
+        // 取得失敗 (非表示タブ、権限拒否、低電力モード等) は黙殺
+        wakeLockSentinel = null;
+    }
+}
+
+async function releaseWakeLock() {
+    if (!wakeLockSentinel) return;
+    const s = wakeLockSentinel;
+    wakeLockSentinel = null;
+    try { await s.release(); } catch (_) { /* 既に release 済みは無視 */ }
+}
+
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && isPlayingState()) {
+        acquireWakeLock();
+    }
+});
+
 
 // タイマー設定
 const timerElement = document.getElementById('timer');
@@ -381,6 +416,7 @@ function startWorkingTimer() {
     // 音源は source manager に任せる (旧 source と異なれば自動で停止 + 新 source 開始)
     setActiveSource('work');
     MUSIC_MANAGER2.play();
+    acquireWakeLock();
 
 }
 
@@ -392,6 +428,7 @@ function startBreakingTimer() {
 
     setActiveSource('break');
     MUSIC_MANAGER2.play();
+    acquireWakeLock();
 
 }
 
@@ -565,6 +602,7 @@ pauseButton.addEventListener('click', function () {
     // 音楽ストップ (currentSourceKey は維持し restart で再開できるようにする)
     pauseAllSources();
     MUSIC_MANAGER2.stop();
+    releaseWakeLock();
 
 });
 
@@ -603,6 +641,7 @@ resetButton.addEventListener('click', function () {
     // 音楽ストップ (currentSourceKey もクリア)
     resetSources();
     MUSIC_MANAGER2.stop();
+    releaseWakeLock();
 });
 
 // ステータスの変更を監視
