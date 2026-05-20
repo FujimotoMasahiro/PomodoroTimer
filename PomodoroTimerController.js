@@ -47,7 +47,6 @@ const workSourceSelect = document.getElementById('work-source');
 const breakSourceSelect = document.getElementById('break-source');
 const voicyUrlInput = document.getElementById('voicy-url');
 const youtubeListContainer = document.getElementById('youtube-url-list');
-const youtubeAddButton = document.getElementById('youtube-url-add');
 
 const DEFAULT_VOICY_URL = 'https://voicy.jp/embed/channel/941';
 
@@ -78,11 +77,11 @@ function loadAudioSourceSettings() {
             }
         }
     } catch (_) { /* localStorage 不可・JSON 不正は既定値で続行 */ }
-    // YouTube URL 入力欄を復元 (最低 1 欄は空でも保持)
+    // YouTube URL 入力欄を復元。末尾には常に空欄を 1 つ保持する
     if (youtubeListContainer) {
         youtubeListContainer.innerHTML = '';
-        if (restoredUrls.length === 0) restoredUrls = [''];
         restoredUrls.forEach((u) => addYouTubeUrlInput(u));
+        addYouTubeUrlInput('');
     }
 }
 
@@ -111,45 +110,58 @@ function getYouTubeUrls() {
 function addYouTubeUrlInput(initialValue = '') {
     if (!youtubeListContainer) return;
     const row = document.createElement('div');
-    row.className = 'input-group input-group-sm mb-2 yt-url-row';
+    row.className = 'yt-url-row mb-2';
     row.innerHTML = `
-        <span class="input-group-text drag-handle" style="cursor: grab; user-select: none;" title="ドラッグで並び替え">≡</span>
-        <span class="input-group-text p-0 yt-thumb-cell" style="display:none;">
-            <img class="yt-thumb" alt="" style="width: 60px; height: 45px; object-fit: cover; display: block;">
-        </span>
-        <input type="url" class="form-control" placeholder="https://www.youtube.com/watch?v=...">
-        <button type="button" class="btn btn-outline-danger" aria-label="削除">×</button>
+        <div class="input-group input-group-sm">
+            <span class="input-group-text drag-handle" style="cursor: grab; user-select: none;" title="ドラッグで並び替え">≡</span>
+            <span class="input-group-text p-0 yt-thumb-cell" style="display:none;">
+                <img class="yt-thumb" alt="" style="width: 60px; height: 45px; object-fit: cover; display: block;">
+            </span>
+            <input type="url" class="form-control" placeholder="https://www.youtube.com/watch?v=...">
+            <button type="button" class="btn btn-outline-danger" aria-label="削除">×</button>
+        </div>
+        <div class="form-text text-danger yt-url-warning mt-1" style="display:none;">
+            動画 URL を解析できませんでした。YouTube の URL を入力してください。
+        </div>
     `;
     const input = row.querySelector('input');
     const removeBtn = row.querySelector('button');
     const handle = row.querySelector('.drag-handle');
     const thumbCell = row.querySelector('.yt-thumb-cell');
     const thumbImg = row.querySelector('.yt-thumb');
+    const warningEl = row.querySelector('.yt-url-warning');
 
-    function updateThumbnail() {
-        const id = YOUTUBE_MANAGER.extractVideoId(input.value.trim());
+    // 入力値からサムネ表示・警告表示を更新し、有効な videoId なら true を返す
+    function updateValidation() {
+        const trimmed = input.value.trim();
+        const id = YOUTUBE_MANAGER.extractVideoId(trimmed);
         if (id) {
             thumbImg.src = `https://img.youtube.com/vi/${id}/default.jpg`;
             thumbCell.style.display = '';
-        } else {
-            thumbImg.removeAttribute('src');
-            thumbCell.style.display = 'none';
+            warningEl.style.display = 'none';
+            return true;
         }
+        thumbImg.removeAttribute('src');
+        thumbCell.style.display = 'none';
+        // 空欄は警告対象外 (空のままの行は常に許容)
+        warningEl.style.display = trimmed ? '' : 'none';
+        return false;
     }
 
     input.value = initialValue;
-    updateThumbnail();
+    updateValidation();
     input.addEventListener('input', () => {
-        updateThumbnail();
+        const isValid = updateValidation();
         saveAudioSourceSettings();
         scheduleUrlRefresh();
+        // 末尾の行が有効 URL になったら、新しい空欄を末尾に追加
+        if (isValid && row === youtubeListContainer.lastElementChild) {
+            addYouTubeUrlInput('');
+        }
     });
     removeBtn.addEventListener('click', () => {
         row.remove();
-        // 1 欄は必ず残す (空欄でも保持)
-        if (youtubeListContainer.children.length === 0) {
-            addYouTubeUrlInput('');
-        }
+        ensureTrailingEmpty();
         saveAudioSourceSettings();
         scheduleUrlRefresh();
     });
@@ -169,6 +181,7 @@ function addYouTubeUrlInput(initialValue = '') {
     row.addEventListener('dragend', () => {
         row.classList.remove('dragging');
         row.removeAttribute('draggable');
+        ensureTrailingEmpty();
         saveAudioSourceSettings();
         // 順序が実際に変わったときだけ、新リストの先頭から再生し直す
         const newOrder = getYouTubeUrls().join(',');
@@ -179,6 +192,20 @@ function addYouTubeUrlInput(initialValue = '') {
     });
 
     youtubeListContainer.appendChild(row);
+}
+
+// 末尾に空の入力欄が無ければ追加して、常に「末尾は空欄」の状態を保つ
+function ensureTrailingEmpty() {
+    if (!youtubeListContainer) return;
+    const last = youtubeListContainer.lastElementChild;
+    if (!last) {
+        addYouTubeUrlInput('');
+        return;
+    }
+    const lastInput = last.querySelector('input[type="url"]');
+    if (lastInput && lastInput.value.trim() !== '') {
+        addYouTubeUrlInput('');
+    }
 }
 
 // ドラッグ開始時点の YouTube URL 順序 (カンマ連結)。dragend で比較し並び替え検知に使う
@@ -224,12 +251,6 @@ if (youtubeListContainer) {
     });
 }
 
-if (youtubeAddButton) {
-    youtubeAddButton.addEventListener('click', () => {
-        addYouTubeUrlInput('');
-    });
-}
-
 // 動画再生終了時に該当 URL 行を入力欄から取り除く。
 // YouTubeManager 側で _advance() が既に次の動画を読み込んでいるため、
 // scheduleUrlRefresh は呼ばない (キュー編集中の再ロードを避ける)。
@@ -238,14 +259,12 @@ function removeYouTubeUrlByVideoId(videoId) {
     const inputs = youtubeListContainer.querySelectorAll('input[type="url"]');
     for (const input of inputs) {
         if (YOUTUBE_MANAGER.extractVideoId(input.value.trim()) === videoId) {
-            const row = input.closest('.input-group');
+            const row = input.closest('.yt-url-row');
             if (row) row.remove();
             break;
         }
     }
-    if (youtubeListContainer.children.length === 0) {
-        addYouTubeUrlInput('');
-    }
+    ensureTrailingEmpty();
     saveAudioSourceSettings();
 }
 
