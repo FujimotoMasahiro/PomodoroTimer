@@ -161,13 +161,17 @@ export class MusicManager {
 /**
  * VoicyManagerクラス
  *
- * Voicy の埋め込み iframe を動的に挿入/削除して再生・停止を制御する。
+ * Voicy の埋め込み iframe を動的に挿入し、再生位置を保ったまま表示制御する。
  * Voicy はクロスオリジン埋め込みで postMessage API を公開していないため、
- * 「停止」は iframe を DOM から外すことで実現する (audio が要素ごと破棄される)。
+ * 再生位置をブラウザ側から操作できない。
+ * フェーズ切替 (作業中⇔休憩中) のたびに iframe を破棄すると、その都度先頭から
+ * 読み込み直しになって途中から聴けなくなるため、stop() では iframe を DOM に残し、
+ * 表示側 (wrapper) の display:none で視覚的にのみ隠す方針とする。
+ * URL が切り替わった場合だけ play() 内で iframe を差し替える。
  *
  * Voicy プレイヤーの内部コンテンツは固定幅 (デスクトップレイアウト) で、
  * iframe を width=100% にしても中身が横スクロールしてしまう。
- * そこで iframe に「自然幅」を物理的に与え、CSS transform: scale() でコンテナ幅に縮小表示する。
+ * そこで iframe に「自然幅」を物理的に与え、CSS zoom でコンテナ幅にフィットさせる。
  */
 export class VoicyManager {
     constructor(containerElement) {
@@ -204,9 +208,9 @@ export class VoicyManager {
     }
 
     stop() {
-        if (!this.container) return;
-        this.container.innerHTML = '';
-        this.container.style.overflow = '';
-        this.currentUrl = null;
+        // iframe を DOM から取り除くとフェーズ切替時に毎回読み込み直され、
+        // 途中から再生できなくなる。そのため stop() では iframe を保持し、
+        // 表示/非表示は呼び出し側 (wrapper の display:none) に任せる。
+        // URL が変わった場合は play() 側で iframe が差し替えられる。
     }
 }
