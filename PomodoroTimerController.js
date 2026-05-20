@@ -116,7 +116,10 @@ function addYouTubeUrlInput(initialValue = '') {
     const input = row.querySelector('input');
     const removeBtn = row.querySelector('button');
     input.value = initialValue;
-    input.addEventListener('input', saveAudioSourceSettings);
+    input.addEventListener('input', () => {
+        saveAudioSourceSettings();
+        scheduleUrlRefresh();
+    });
     removeBtn.addEventListener('click', () => {
         row.remove();
         // 1 欄は必ず残す (空欄でも保持)
@@ -124,6 +127,7 @@ function addYouTubeUrlInput(initialValue = '') {
             addYouTubeUrlInput('');
         }
         saveAudioSourceSettings();
+        scheduleUrlRefresh();
     });
     youtubeListContainer.appendChild(row);
 }
@@ -197,7 +201,10 @@ function onSourceSettingChange() {
 
 if (workSourceSelect) workSourceSelect.addEventListener('change', onSourceSettingChange);
 if (breakSourceSelect) breakSourceSelect.addEventListener('change', onSourceSettingChange);
-if (voicyUrlInput) voicyUrlInput.addEventListener('input', saveAudioSourceSettings);
+if (voicyUrlInput) voicyUrlInput.addEventListener('input', () => {
+    saveAudioSourceSettings();
+    scheduleUrlRefresh();
+});
 
 function getVoicyUrl() {
     const v = (voicyUrlInput && voicyUrlInput.value || '').trim();
@@ -272,6 +279,46 @@ function pauseAllSources() {
 function resetSources() {
     if (currentSourceKey) stopSource(currentSourceKey);
     currentSourceKey = null;
+}
+
+// 現在のフェーズを判定 ('work' / 'break')
+function currentPhase() {
+    switch (status) {
+        case STATUS_ENUM.BREAKING.rawValue:
+        case STATUS_ENUM.BREAKING_POSE.rawValue:
+        case STATUS_ENUM.LONGBREAKING.rawValue:
+        case STATUS_ENUM.LONGBREAKING_POSE.rawValue:
+            return 'break';
+        default:
+            return 'work';
+    }
+}
+
+// 再生中フェーズか (一時停止中・INITIAL を除く)
+function isPlayingState() {
+    return status === STATUS_ENUM.WORKING.rawValue
+        || status === STATUS_ENUM.BREAKING.rawValue
+        || status === STATUS_ENUM.LONGBREAKING.rawValue;
+}
+
+// URL/キュー変更時に、再生中なら iframe を新内容で差し替える。
+// stopSource を経由せず直接 startSource を呼んで音切れを最小化する
+// (Voicy.play は innerHTML 上書きで iframe を自然と置換、YouTube.play は
+//  キュー更新 + loadVideoById で動画切替を行う)。
+// 一時停止中・INITIAL では何もしない (次の start 時に新内容が反映される)。
+function refreshActiveSourceIfPlaying() {
+    if (!isPlayingState()) return;
+    const nextKey = sourceKeyFor(currentPhase());
+    if (nextKey === currentSourceKey) return;
+    currentSourceKey = nextKey;
+    startSource(nextKey);
+}
+
+// 連続入力時にリロードが連発しないよう軽い debounce を入れる
+let _urlRefreshTimer = null;
+function scheduleUrlRefresh() {
+    clearTimeout(_urlRefreshTimer);
+    _urlRefreshTimer = setTimeout(refreshActiveSourceIfPlaying, 300);
 }
 
 

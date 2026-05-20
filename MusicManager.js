@@ -291,65 +291,66 @@ export class YouTubeManager {
         return this._apiPromise;
     }
 
-    /**
-     * 入力された URL 配列 (もしくは単一 URL) からキューを更新する。
-     * 内容が変わった場合のみ true を返し、currentIndex を 0 に戻す。
-     */
-    _updateQueue(input) {
-        const list = Array.isArray(input) ? input : [input];
-        const ids = list
-            .map((u) => this.extractVideoId(u))
-            .filter((id) => !!id);
-        const signature = ids.join(',');
-        if (signature === this._queueSignature) return false;
-        this.queue = ids;
-        this._queueSignature = signature;
-        this.currentIndex = ids.length > 0 ? 0 : -1;
-        return true;
-    }
-
     async play(input) {
         if (!this.container) return;
-        const queueChanged = this._updateQueue(input);
-        if (this.queue.length === 0) {
+        const newIds = (Array.isArray(input) ? input : [input])
+            .map((u) => this.extractVideoId(u))
+            .filter((id) => !!id);
+        if (newIds.length === 0) {
             console.warn('[YouTubeManager] No valid videos in queue:', input);
             return;
         }
-        if (this.currentIndex < 0) this.currentIndex = 0;
-        const videoId = this.queue[this.currentIndex];
+        const newSignature = newIds.join(',');
+
+        // 再生中の動画 ID が新しいキューにも含まれているなら、その位置に
+        // index を寄せて動画を継続再生する (キュー編集中に頭出しさせない)。
+        // 含まれない (削除された / 未再生) なら新キューの先頭から開始。
+        let targetIndex, targetVideoId;
+        if (this.currentVideoId && newIds.includes(this.currentVideoId)) {
+            targetIndex = newIds.indexOf(this.currentVideoId);
+            targetVideoId = this.currentVideoId;
+        } else {
+            targetIndex = 0;
+            targetVideoId = newIds[0];
+        }
+
+        this.queue = newIds;
+        this._queueSignature = newSignature;
+        this.currentIndex = targetIndex;
 
         await this.ensureApiLoaded();
 
-        // キュー未変更かつ player が同じ動画を保持: 一時停止からの再開
-        if (this.player && !queueChanged && this.currentVideoId === videoId) {
-            if (typeof this.player.playVideo === 'function') this.player.playVideo();
-            return;
-        }
-        // キューが変わった or 動画 ID がずれた: loadVideoById で差し替え
-        if (this.player) {
-            if (typeof this.player.loadVideoById === 'function') {
-                this.player.loadVideoById(videoId);
-                this.currentVideoId = videoId;
-            }
-            return;
-        }
-        // 初回生成
-        this.container.innerHTML = '<div id="youtube-iframe-target"></div>';
-        this.player = new YT.Player('youtube-iframe-target', {
-            height: '400',
-            width: '100%',
-            videoId,
-            playerVars: { rel: 0, modestbranding: 1, playsinline: 1 },
-            events: {
-                onReady: (e) => {
-                    if (e && e.target && typeof e.target.playVideo === 'function') {
-                        e.target.playVideo();
-                    }
+        if (!this.player) {
+            // 初回生成
+            this.currentVideoId = targetVideoId;
+            this.container.innerHTML = '<div id="youtube-iframe-target"></div>';
+            this.player = new YT.Player('youtube-iframe-target', {
+                height: '400',
+                width: '100%',
+                videoId: targetVideoId,
+                playerVars: { rel: 0, modestbranding: 1, playsinline: 1 },
+                events: {
+                    onReady: (e) => {
+                        if (e && e.target && typeof e.target.playVideo === 'function') {
+                            e.target.playVideo();
+                        }
+                    },
+                    onStateChange: (e) => this._onStateChange(e),
                 },
-                onStateChange: (e) => this._onStateChange(e),
-            },
-        });
-        this.currentVideoId = videoId;
+            });
+            return;
+        }
+
+        if (this.currentVideoId === targetVideoId) {
+            // 同じ動画を継続: playVideo() で再生開始/再開 (再生中なら no-op)
+            if (typeof this.player.playVideo === 'function') this.player.playVideo();
+        } else {
+            // 別の動画へ切替: loadVideoById で iframe 再生成せず動画だけ差し替え
+            if (typeof this.player.loadVideoById === 'function') {
+                this.player.loadVideoById(targetVideoId);
+                this.currentVideoId = targetVideoId;
+            }
+        }
     }
 
     _onStateChange(event) {
