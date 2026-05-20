@@ -111,15 +111,36 @@ function getYouTubeUrls() {
 function addYouTubeUrlInput(initialValue = '') {
     if (!youtubeListContainer) return;
     const row = document.createElement('div');
-    row.className = 'input-group input-group-sm mb-2';
+    row.className = 'input-group input-group-sm mb-2 yt-url-row';
     row.innerHTML = `
+        <span class="input-group-text drag-handle" style="cursor: grab; user-select: none;" title="ドラッグで並び替え">≡</span>
+        <span class="input-group-text p-0 yt-thumb-cell" style="display:none;">
+            <img class="yt-thumb" alt="" style="width: 60px; height: 45px; object-fit: cover; display: block;">
+        </span>
         <input type="url" class="form-control" placeholder="https://www.youtube.com/watch?v=...">
         <button type="button" class="btn btn-outline-danger" aria-label="削除">×</button>
     `;
     const input = row.querySelector('input');
     const removeBtn = row.querySelector('button');
+    const handle = row.querySelector('.drag-handle');
+    const thumbCell = row.querySelector('.yt-thumb-cell');
+    const thumbImg = row.querySelector('.yt-thumb');
+
+    function updateThumbnail() {
+        const id = YOUTUBE_MANAGER.extractVideoId(input.value.trim());
+        if (id) {
+            thumbImg.src = `https://img.youtube.com/vi/${id}/default.jpg`;
+            thumbCell.style.display = '';
+        } else {
+            thumbImg.removeAttribute('src');
+            thumbCell.style.display = 'none';
+        }
+    }
+
     input.value = initialValue;
+    updateThumbnail();
     input.addEventListener('input', () => {
+        updateThumbnail();
         saveAudioSourceSettings();
         scheduleUrlRefresh();
     });
@@ -132,7 +153,53 @@ function addYouTubeUrlInput(initialValue = '') {
         saveAudioSourceSettings();
         scheduleUrlRefresh();
     });
+
+    // ハンドル上で押下したときだけ draggable=true にし、input 内のテキスト選択と
+    // ドラッグ操作が競合しないようにする。
+    handle.addEventListener('mousedown', () => row.setAttribute('draggable', 'true'));
+    handle.addEventListener('mouseup', () => row.removeAttribute('draggable'));
+    row.addEventListener('dragstart', (e) => {
+        row.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        // Firefox は dataTransfer に何か入れないと drag が始まらない
+        e.dataTransfer.setData('text/plain', '');
+    });
+    row.addEventListener('dragend', () => {
+        row.classList.remove('dragging');
+        row.removeAttribute('draggable');
+        // 並び替え結果を localStorage に保存し、再生中ならキューも更新
+        saveAudioSourceSettings();
+        scheduleUrlRefresh();
+    });
+
     youtubeListContainer.appendChild(row);
+}
+
+// 並び替え時に、ドラッグ中の行を挿入すべき次兄弟要素を返す
+function getDragAfterElement(container, y) {
+    const rows = [...container.querySelectorAll('.yt-url-row:not(.dragging)')];
+    return rows.reduce((closest, row) => {
+        const box = row.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > closest.offset) {
+            return { offset, element: row };
+        }
+        return closest;
+    }, { offset: -Infinity, element: null }).element;
+}
+
+if (youtubeListContainer) {
+    youtubeListContainer.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        const dragging = youtubeListContainer.querySelector('.yt-url-row.dragging');
+        if (!dragging) return;
+        const after = getDragAfterElement(youtubeListContainer, e.clientY);
+        if (after == null) {
+            youtubeListContainer.appendChild(dragging);
+        } else {
+            youtubeListContainer.insertBefore(dragging, after);
+        }
+    });
 }
 
 if (youtubeAddButton) {
