@@ -1,4 +1,4 @@
-import { MusicManager, VoicyManager } from "./MusicManager.js";
+import { MusicManager, VoicyManager, YouTubeManager } from "./MusicManager.js";
 
 // 定義 なので、constを用いる
 const STATUS_ENUM = {
@@ -37,17 +37,19 @@ const MUSIC_MANAGER = new MusicManager(document.getElementById('audioPlayer'));
 const MUSIC_MANAGER2 = new MusicManager(document.getElementById('audioPlayer2'));
 const MUSIC_MANAGER3 = new MusicManager(document.getElementById('audioPlayer3'));
 const VOICY_MANAGER = new VoicyManager(document.getElementById('voicyContainer'));
+const YOUTUBE_MANAGER = new YouTubeManager(document.getElementById('youtubeContainer'));
 
 // 音源設定 UI
 const workSourceSelect = document.getElementById('work-source');
 const breakSourceSelect = document.getElementById('break-source');
 const voicyUrlInput = document.getElementById('voicy-url');
+const youtubeUrlInput = document.getElementById('youtube-url');
 
 const DEFAULT_VOICY_URL = 'https://voicy.jp/embed/channel/941';
 
 // 音源設定の localStorage 永続化
 const AUDIO_SETTINGS_KEY = 'pomodoro_audio_source_settings';
-const VALID_SOURCES = ['bgm', 'voicy', 'none'];
+const VALID_SOURCES = ['bgm', 'voicy', 'youtube', 'none'];
 
 function loadAudioSourceSettings() {
     try {
@@ -63,6 +65,9 @@ function loadAudioSourceSettings() {
         if (voicyUrlInput && typeof s.voicyUrl === 'string' && s.voicyUrl.trim()) {
             voicyUrlInput.value = s.voicyUrl;
         }
+        if (youtubeUrlInput && typeof s.youtubeUrl === 'string') {
+            youtubeUrlInput.value = s.youtubeUrl;
+        }
     } catch (_) { /* localStorage 不可・JSON 不正は既定値で続行 */ }
 }
 
@@ -72,6 +77,7 @@ function saveAudioSourceSettings() {
             workSource: workSourceSelect ? workSourceSelect.value : 'bgm',
             breakSource: breakSourceSelect ? breakSourceSelect.value : 'bgm',
             voicyUrl: voicyUrlInput ? voicyUrlInput.value : '',
+            youtubeUrl: youtubeUrlInput ? youtubeUrlInput.value : '',
         };
         localStorage.setItem(AUDIO_SETTINGS_KEY, JSON.stringify(data));
     } catch (_) { /* localStorage 不可は無視 */ }
@@ -86,6 +92,7 @@ const sourceWrappers = {
     bgmWork: document.getElementById('workBgmWrapper'),
     bgmBreak: document.getElementById('breakBgmWrapper'),
     voicy: document.getElementById('voicyWrapper'),
+    youtube: document.getElementById('youtubeWrapper'),
     none: document.getElementById('noneWrapper'),
 };
 
@@ -106,6 +113,7 @@ function updateActiveSourceDisplay() {
 
     let activeKey, label;
     if (sourceValue === 'voicy') { activeKey = 'voicy'; label = 'Voicy'; }
+    else if (sourceValue === 'youtube') { activeKey = 'youtube'; label = 'YouTube'; }
     else if (sourceValue === 'none') { activeKey = 'none'; label = '音なし'; }
     else if (phase === 'break') { activeKey = 'bgmBreak'; label = '休憩中BGM'; }
     else { activeKey = 'bgmWork'; label = '作業中BGM'; }
@@ -139,40 +147,79 @@ function onSourceSettingChange() {
 if (workSourceSelect) workSourceSelect.addEventListener('change', onSourceSettingChange);
 if (breakSourceSelect) breakSourceSelect.addEventListener('change', onSourceSettingChange);
 if (voicyUrlInput) voicyUrlInput.addEventListener('input', saveAudioSourceSettings);
+if (youtubeUrlInput) youtubeUrlInput.addEventListener('input', saveAudioSourceSettings);
 
 function getVoicyUrl() {
     const v = (voicyUrlInput && voicyUrlInput.value || '').trim();
     return v || DEFAULT_VOICY_URL;
 }
 
-function playWorkSource() {
-    const source = workSourceSelect ? workSourceSelect.value : 'bgm';
-    if (source === 'voicy') {
-        VOICY_MANAGER.play(getVoicyUrl());
-    } else if (source === 'bgm') {
-        MUSIC_MANAGER.play();
+function getYouTubeUrl() {
+    return (youtubeUrlInput && youtubeUrlInput.value || '').trim();
+}
+
+// ----------------------------------------------------------------------------
+// アクティブな音源を 1 つの文字列キーで管理する
+// ----------------------------------------------------------------------------
+// currentSourceKey の取り得る値:
+//   null                  何も再生していない
+//   'bgm-work'            作業中BGM (MUSIC_MANAGER / audioPlayer)
+//   'bgm-break'           休憩中BGM (MUSIC_MANAGER3 / audioPlayer3)
+//   'voicy:<URL>'         Voicy iframe (URL ごとに別キー)
+//   'youtube:<VIDEO_ID>'  YouTube プレイヤー (動画 ID ごとに別キー)
+//   'none'                「音なし」(stop/start は no-op)
+//
+// 同じキーのままフェーズ切替する場合は何もしない (位置維持で継続再生)。
+// キーが変わる場合は旧キーの停止 + 新キーの開始を行う。
+let currentSourceKey = null;
+
+function sourceKeyFor(phase) {
+    const sel = phase === 'break' ? breakSourceSelect : workSourceSelect;
+    const v = sel ? sel.value : 'bgm';
+    if (v === 'bgm')     return phase === 'break' ? 'bgm-break' : 'bgm-work';
+    if (v === 'voicy')   return `voicy:${getVoicyUrl()}`;
+    if (v === 'youtube') return `youtube:${YOUTUBE_MANAGER.extractVideoId(getYouTubeUrl()) || ''}`;
+    return 'none';
+}
+
+function startSource(key) {
+    if (!key || key === 'none') return;
+    if (key === 'bgm-work')              MUSIC_MANAGER.play();
+    else if (key === 'bgm-break')        MUSIC_MANAGER3.play();
+    else if (key.startsWith('voicy:'))   VOICY_MANAGER.play(key.slice('voicy:'.length));
+    else if (key.startsWith('youtube:')) YOUTUBE_MANAGER.play(getYouTubeUrl());
+}
+
+function stopSource(key) {
+    if (!key || key === 'none') return;
+    if (key === 'bgm-work')              MUSIC_MANAGER.stop();
+    else if (key === 'bgm-break')        MUSIC_MANAGER3.stop();
+    else if (key.startsWith('voicy:'))   VOICY_MANAGER.destroy();  // iframe を DOM から削除
+    else if (key.startsWith('youtube:')) YOUTUBE_MANAGER.pause();  // iframe は保持し pauseVideo()
+}
+
+function setActiveSource(phase) {
+    const nextKey = sourceKeyFor(phase);
+    // キーが変わるときだけ旧 source を停止する (同一キーの音は維持)
+    if (currentSourceKey !== nextKey) {
+        if (currentSourceKey) stopSource(currentSourceKey);
+        currentSourceKey = nextKey;
     }
-    // 'none' は何もしない
+    // startSource は同一キーでも常に呼ぶ。各 manager の play() は
+    // 既に再生中なら no-op / 状態維持なので連続再生時の音飛びはなく、
+    // 一時停止後の restart や iframe 破棄後の復帰でも確実に再開できる。
+    startSource(nextKey);
 }
 
-function stopWorkSource() {
-    VOICY_MANAGER.stop();
-    MUSIC_MANAGER.stop();
+// 一時停止: currentSourceKey は維持し、音だけ止める
+function pauseAllSources() {
+    if (currentSourceKey) stopSource(currentSourceKey);
 }
 
-function playBreakSource() {
-    const source = breakSourceSelect ? breakSourceSelect.value : 'bgm';
-    if (source === 'voicy') {
-        VOICY_MANAGER.play(getVoicyUrl());
-    } else if (source === 'bgm') {
-        MUSIC_MANAGER3.play();
-    }
-    // 'none' は何もしない
-}
-
-function stopBreakSource() {
-    VOICY_MANAGER.stop();
-    MUSIC_MANAGER3.stop();
+// リセット: 音を止めて currentSourceKey もクリア
+function resetSources() {
+    if (currentSourceKey) stopSource(currentSourceKey);
+    currentSourceKey = null;
 }
 
 
@@ -232,9 +279,8 @@ function startWorkingTimer() {
     timer();
     intervalId = setInterval(timer, oneSecond);
 
-    // 音楽スタート
-    stopBreakSource();
-    playWorkSource();
+    // 音源は source manager に任せる (旧 source と異なれば自動で停止 + 新 source 開始)
+    setActiveSource('work');
     MUSIC_MANAGER2.play();
 
 }
@@ -245,9 +291,7 @@ function startBreakingTimer() {
     timer();
     intervalId = setInterval(timer, oneSecond);
 
-    // 音楽スタート
-    stopWorkSource();
-    playBreakSource();
+    setActiveSource('break');
     MUSIC_MANAGER2.play();
 
 }
@@ -419,9 +463,8 @@ pauseButton.addEventListener('click', function () {
             break;
     }
 
-    // 音楽ストップ
-    stopWorkSource();
-    stopBreakSource();
+    // 音楽ストップ (currentSourceKey は維持し restart で再開できるようにする)
+    pauseAllSources();
     MUSIC_MANAGER2.stop();
 
 });
@@ -458,9 +501,8 @@ resetButton.addEventListener('click', function () {
     status = STATUS_ENUM.INITIAL.rawValue;
     statusElement.textContent = STATUS_ENUM.INITIAL.string;
 
-    // 音楽ストップ
-    stopWorkSource();
-    stopBreakSource();
+    // 音楽ストップ (currentSourceKey もクリア)
+    resetSources();
     MUSIC_MANAGER2.stop();
 });
 

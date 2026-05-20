@@ -61,6 +61,10 @@
                             <div id="voicyContainer"></div>
                             <p class="text-muted small mb-0 mt-2">Voicy プレイヤー内の再生ボタンを 1 回押してください。</p>
                         </div>
+                        <div id="youtubeWrapper" class="active-source-content" style="display:none;">
+                            <div id="youtubeContainer"></div>
+                            <p class="text-muted small mb-0 mt-2">URL を変更したい場合は右の「YouTube URL」欄から。</p>
+                        </div>
                         <div id="noneWrapper" class="active-source-content" style="display:none;">
                             <p class="text-muted mb-0 py-3 text-center">音源は使用されていません</p>
                         </div>
@@ -88,6 +92,7 @@
                             <select id="work-source" class="form-select">
                                 <option value="bgm">BGM (Novoice.mp3)</option>
                                 <option value="voicy">Voicy</option>
+                                <option value="youtube">YouTube</option>
                                 <option value="none">音なし</option>
                             </select>
                         </div>
@@ -96,6 +101,7 @@
                             <select id="break-source" class="form-select">
                                 <option value="bgm">BGM (Drifting Clouds.mp3)</option>
                                 <option value="voicy">Voicy</option>
+                                <option value="youtube">YouTube</option>
                                 <option value="none">音なし</option>
                             </select>
                         </div>
@@ -105,6 +111,12 @@
                                 value="https://voicy.jp/embed/channel/941"
                                 placeholder="https://voicy.jp/embed/channel/941">
                             <div class="form-text">Voicy 埋め込み URL (既定は西野亮廣チャンネル)</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="youtube-url" class="form-label">YouTube URL</label>
+                            <input type="url" id="youtube-url" class="form-control"
+                                placeholder="https://www.youtube.com/watch?v=...">
+                            <div class="form-text">作業用 BGM などの動画 URL を貼り付け</div>
                         </div>
                         <hr>
 

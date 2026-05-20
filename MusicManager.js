@@ -212,5 +212,126 @@ export class VoicyManager {
         // 途中から再生できなくなる。そのため stop() では iframe を保持し、
         // 表示/非表示は呼び出し側 (wrapper の display:none) に任せる。
         // URL が変わった場合は play() 側で iframe が差し替えられる。
+        // 別音源へ切替えるなど物理的に止めたい場合は destroy() を使う。
+    }
+
+    destroy() {
+        if (!this.container) return;
+        this.container.innerHTML = '';
+        this.container.style.overflow = '';
+        this.currentUrl = null;
+    }
+}
+
+/**
+ * YouTubeManagerクラス
+ *
+ * YouTube IFrame Player API を用いて作業 BGM などとして YouTube 動画を埋め込み、
+ * フェーズ切替に応じて再生/一時停止を JS から制御する。
+ *
+ * Voicy と異なり postMessage API (= 公式の Player API) が利用できるため、
+ * iframe を破棄せずに playVideo() / pauseVideo() / loadVideoById() で制御し、
+ * 再生位置を保ったまま作業中 ⇔ 休憩中 を行き来できる。
+ *
+ * - API スクリプトは最初の play() 呼び出し時に遅延ロードする。
+ * - 同一 videoId のときは playVideo() のみで再開し、URL が変わったら
+ *   loadVideoById() で動画を差し替える (iframe 自体は再生成しない)。
+ * - ループは指定しない (ユーザー指定: loop=OFF)。
+ */
+export class YouTubeManager {
+    constructor(containerElement) {
+        this.container = containerElement;
+        this.player = null;
+        this.currentVideoId = null;
+        this._apiPromise = null;
+    }
+
+    extractVideoId(url) {
+        if (!url) return null;
+        const raw = String(url).trim();
+        if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+        try {
+            const u = new URL(raw);
+            if (u.hostname === 'youtu.be' || u.hostname.endsWith('.youtu.be')) {
+                return (u.pathname.slice(1).split('/')[0]) || null;
+            }
+            if (u.hostname.includes('youtube.com')) {
+                if (u.pathname === '/watch' && u.searchParams.has('v')) {
+                    return u.searchParams.get('v');
+                }
+                const m = u.pathname.match(/^\/(?:embed|shorts|v)\/([^/?]+)/);
+                if (m) return m[1];
+            }
+        } catch (_) { /* invalid URL */ }
+        return null;
+    }
+
+    ensureApiLoaded() {
+        if (window.YT && window.YT.Player) return Promise.resolve();
+        if (this._apiPromise) return this._apiPromise;
+        this._apiPromise = new Promise((resolve) => {
+            const prev = window.onYouTubeIframeAPIReady;
+            window.onYouTubeIframeAPIReady = () => {
+                if (typeof prev === 'function') {
+                    try { prev(); } catch (_) {}
+                }
+                resolve();
+            };
+            if (!document.querySelector('script[data-yt-iframe-api]')) {
+                const tag = document.createElement('script');
+                tag.src = 'https://www.youtube.com/iframe_api';
+                tag.setAttribute('data-yt-iframe-api', '1');
+                document.head.appendChild(tag);
+            }
+        });
+        return this._apiPromise;
+    }
+
+    async play(url) {
+        if (!this.container) return;
+        const videoId = this.extractVideoId(url);
+        if (!videoId) {
+            console.warn('[YouTubeManager] Invalid URL:', url);
+            return;
+        }
+        await this.ensureApiLoaded();
+        if (this.player && this.currentVideoId === videoId) {
+            if (typeof this.player.playVideo === 'function') this.player.playVideo();
+            return;
+        }
+        if (this.player && this.currentVideoId !== videoId) {
+            if (typeof this.player.loadVideoById === 'function') {
+                this.player.loadVideoById(videoId);
+                this.currentVideoId = videoId;
+            }
+            return;
+        }
+        this.container.innerHTML = '<div id="youtube-iframe-target"></div>';
+        this.player = new YT.Player('youtube-iframe-target', {
+            height: '400',
+            width: '100%',
+            videoId,
+            playerVars: { rel: 0, modestbranding: 1, playsinline: 1 },
+            events: {
+                onReady: (e) => {
+                    if (e && e.target && typeof e.target.playVideo === 'function') {
+                        e.target.playVideo();
+                    }
+                },
+            },
+        });
+        this.currentVideoId = videoId;
+    }
+
+    pause() {
+        if (this.player && typeof this.player.pauseVideo === 'function') {
+            this.player.pauseVideo();
+        }
+    }
+
+    stop() {
+        // Voicy と同じく iframe を破棄せず、pauseVideo() で一時停止のみ。
+        // (再生位置を維持してフェーズ往復で同じ場所から再開できる)
+        this.pause();
     }
 }
