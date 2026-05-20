@@ -239,7 +239,7 @@ export class VoicyManager {
  * - ループは指定しない (ユーザー指定: loop=OFF)。
  */
 export class YouTubeManager {
-    constructor(containerElement) {
+    constructor(containerElement, options = {}) {
         this.container = containerElement;
         this.player = null;
         this.currentVideoId = null;
@@ -248,6 +248,9 @@ export class YouTubeManager {
         this.queue = [];
         this.currentIndex = -1;
         this._queueSignature = null;
+        // 動画が最後まで再生されたときに呼ばれるコールバック。
+        // 引数は再生終了した videoId。UI からの URL 行削除などに使う。
+        this.onVideoEnded = typeof options.onVideoEnded === 'function' ? options.onVideoEnded : null;
     }
 
     extractVideoId(url) {
@@ -356,7 +359,11 @@ export class YouTubeManager {
     _onStateChange(event) {
         // YT.PlayerState.ENDED === 0 (動画が最後まで再生されたとき)
         if (event && event.data === 0) {
+            const endedId = this.currentVideoId;
             this._advance();
+            if (this.onVideoEnded && endedId) {
+                try { this.onVideoEnded(endedId); } catch (_) { /* UI 側エラーは握りつぶす */ }
+            }
         }
     }
 

@@ -37,7 +37,10 @@ const MUSIC_MANAGER = new MusicManager(document.getElementById('audioPlayer'));
 const MUSIC_MANAGER2 = new MusicManager(document.getElementById('audioPlayer2'));
 const MUSIC_MANAGER3 = new MusicManager(document.getElementById('audioPlayer3'));
 const VOICY_MANAGER = new VoicyManager(document.getElementById('voicyContainer'));
-const YOUTUBE_MANAGER = new YouTubeManager(document.getElementById('youtubeContainer'));
+const YOUTUBE_MANAGER = new YouTubeManager(
+    document.getElementById('youtubeContainer'),
+    { onVideoEnded: (videoId) => removeYouTubeUrlByVideoId(videoId) }
+);
 
 // 音源設定 UI
 const workSourceSelect = document.getElementById('work-source');
@@ -136,6 +139,25 @@ if (youtubeAddButton) {
     youtubeAddButton.addEventListener('click', () => {
         addYouTubeUrlInput('');
     });
+}
+
+// 動画再生終了時に該当 URL 行を入力欄から取り除く。
+// YouTubeManager 側で _advance() が既に次の動画を読み込んでいるため、
+// scheduleUrlRefresh は呼ばない (キュー編集中の再ロードを避ける)。
+function removeYouTubeUrlByVideoId(videoId) {
+    if (!youtubeListContainer || !videoId) return;
+    const inputs = youtubeListContainer.querySelectorAll('input[type="url"]');
+    for (const input of inputs) {
+        if (YOUTUBE_MANAGER.extractVideoId(input.value.trim()) === videoId) {
+            const row = input.closest('.input-group');
+            if (row) row.remove();
+            break;
+        }
+    }
+    if (youtubeListContainer.children.length === 0) {
+        addYouTubeUrlInput('');
+    }
+    saveAudioSourceSettings();
 }
 
 loadAudioSourceSettings();
