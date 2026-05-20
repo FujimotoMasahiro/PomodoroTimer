@@ -244,6 +244,10 @@ export class YouTubeManager {
         this.player = null;
         this.currentVideoId = null;
         this._apiPromise = null;
+        // 再生キュー: 動画 ID の配列。先頭から順に再生し、ENDED イベントで次へ進む。
+        this.queue = [];
+        this.currentIndex = -1;
+        this._queueSignature = null;
     }
 
     extractVideoId(url) {
@@ -287,25 +291,49 @@ export class YouTubeManager {
         return this._apiPromise;
     }
 
-    async play(url) {
+    /**
+     * 入力された URL 配列 (もしくは単一 URL) からキューを更新する。
+     * 内容が変わった場合のみ true を返し、currentIndex を 0 に戻す。
+     */
+    _updateQueue(input) {
+        const list = Array.isArray(input) ? input : [input];
+        const ids = list
+            .map((u) => this.extractVideoId(u))
+            .filter((id) => !!id);
+        const signature = ids.join(',');
+        if (signature === this._queueSignature) return false;
+        this.queue = ids;
+        this._queueSignature = signature;
+        this.currentIndex = ids.length > 0 ? 0 : -1;
+        return true;
+    }
+
+    async play(input) {
         if (!this.container) return;
-        const videoId = this.extractVideoId(url);
-        if (!videoId) {
-            console.warn('[YouTubeManager] Invalid URL:', url);
+        const queueChanged = this._updateQueue(input);
+        if (this.queue.length === 0) {
+            console.warn('[YouTubeManager] No valid videos in queue:', input);
             return;
         }
+        if (this.currentIndex < 0) this.currentIndex = 0;
+        const videoId = this.queue[this.currentIndex];
+
         await this.ensureApiLoaded();
-        if (this.player && this.currentVideoId === videoId) {
+
+        // キュー未変更かつ player が同じ動画を保持: 一時停止からの再開
+        if (this.player && !queueChanged && this.currentVideoId === videoId) {
             if (typeof this.player.playVideo === 'function') this.player.playVideo();
             return;
         }
-        if (this.player && this.currentVideoId !== videoId) {
+        // キューが変わった or 動画 ID がずれた: loadVideoById で差し替え
+        if (this.player) {
             if (typeof this.player.loadVideoById === 'function') {
                 this.player.loadVideoById(videoId);
                 this.currentVideoId = videoId;
             }
             return;
         }
+        // 初回生成
         this.container.innerHTML = '<div id="youtube-iframe-target"></div>';
         this.player = new YT.Player('youtube-iframe-target', {
             height: '400',
@@ -318,9 +346,31 @@ export class YouTubeManager {
                         e.target.playVideo();
                     }
                 },
+                onStateChange: (e) => this._onStateChange(e),
             },
         });
         this.currentVideoId = videoId;
+    }
+
+    _onStateChange(event) {
+        // YT.PlayerState.ENDED === 0 (動画が最後まで再生されたとき)
+        if (event && event.data === 0) {
+            this._advance();
+        }
+    }
+
+    _advance() {
+        const next = this.currentIndex + 1;
+        if (next >= this.queue.length) {
+            // キュー末尾: 何もせず ENDED 状態で停止
+            return;
+        }
+        this.currentIndex = next;
+        const videoId = this.queue[next];
+        this.currentVideoId = videoId;
+        if (this.player && typeof this.player.loadVideoById === 'function') {
+            this.player.loadVideoById(videoId);
+        }
     }
 
     pause() {

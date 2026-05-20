@@ -113,10 +113,11 @@
                             <div class="form-text">Voicy 埋め込み URL (既定は西野亮廣チャンネル)</div>
                         </div>
                         <div class="mb-3">
-                            <label for="youtube-url" class="form-label">YouTube URL</label>
-                            <input type="url" id="youtube-url" class="form-control"
-                                placeholder="https://www.youtube.com/watch?v=...">
-                            <div class="form-text">作業用 BGM などの動画 URL を貼り付け</div>
+                            <label class="form-label">YouTube 再生リスト</label>
+                            <div id="youtube-url-list"></div>
+                            <button type="button" id="youtube-url-add"
+                                class="btn btn-sm btn-outline-secondary mt-1">＋ URL を追加</button>
+                            <div class="form-text">上から順に再生され、動画終了で自動的に次へ切替わります。</div>
                         </div>
                         <hr>
 

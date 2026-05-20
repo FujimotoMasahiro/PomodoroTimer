@@ -43,7 +43,8 @@ const YOUTUBE_MANAGER = new YouTubeManager(document.getElementById('youtubeConta
 const workSourceSelect = document.getElementById('work-source');
 const breakSourceSelect = document.getElementById('break-source');
 const voicyUrlInput = document.getElementById('voicy-url');
-const youtubeUrlInput = document.getElementById('youtube-url');
+const youtubeListContainer = document.getElementById('youtube-url-list');
+const youtubeAddButton = document.getElementById('youtube-url-add');
 
 const DEFAULT_VOICY_URL = 'https://voicy.jp/embed/channel/941';
 
@@ -52,23 +53,34 @@ const AUDIO_SETTINGS_KEY = 'pomodoro_audio_source_settings';
 const VALID_SOURCES = ['bgm', 'voicy', 'youtube', 'none'];
 
 function loadAudioSourceSettings() {
+    let restoredUrls = [];
     try {
         const raw = localStorage.getItem(AUDIO_SETTINGS_KEY);
-        if (!raw) return;
-        const s = JSON.parse(raw);
-        if (workSourceSelect && VALID_SOURCES.includes(s.workSource)) {
-            workSourceSelect.value = s.workSource;
-        }
-        if (breakSourceSelect && VALID_SOURCES.includes(s.breakSource)) {
-            breakSourceSelect.value = s.breakSource;
-        }
-        if (voicyUrlInput && typeof s.voicyUrl === 'string' && s.voicyUrl.trim()) {
-            voicyUrlInput.value = s.voicyUrl;
-        }
-        if (youtubeUrlInput && typeof s.youtubeUrl === 'string') {
-            youtubeUrlInput.value = s.youtubeUrl;
+        if (raw) {
+            const s = JSON.parse(raw);
+            if (workSourceSelect && VALID_SOURCES.includes(s.workSource)) {
+                workSourceSelect.value = s.workSource;
+            }
+            if (breakSourceSelect && VALID_SOURCES.includes(s.breakSource)) {
+                breakSourceSelect.value = s.breakSource;
+            }
+            if (voicyUrlInput && typeof s.voicyUrl === 'string' && s.voicyUrl.trim()) {
+                voicyUrlInput.value = s.voicyUrl;
+            }
+            if (Array.isArray(s.youtubeUrls)) {
+                restoredUrls = s.youtubeUrls.filter((u) => typeof u === 'string');
+            } else if (typeof s.youtubeUrl === 'string' && s.youtubeUrl) {
+                // 旧データ (単一文字列) からの移行
+                restoredUrls = [s.youtubeUrl];
+            }
         }
     } catch (_) { /* localStorage 不可・JSON 不正は既定値で続行 */ }
+    // YouTube URL 入力欄を復元 (最低 1 欄は空でも保持)
+    if (youtubeListContainer) {
+        youtubeListContainer.innerHTML = '';
+        if (restoredUrls.length === 0) restoredUrls = [''];
+        restoredUrls.forEach((u) => addYouTubeUrlInput(u));
+    }
 }
 
 function saveAudioSourceSettings() {
@@ -77,10 +89,49 @@ function saveAudioSourceSettings() {
             workSource: workSourceSelect ? workSourceSelect.value : 'bgm',
             breakSource: breakSourceSelect ? breakSourceSelect.value : 'bgm',
             voicyUrl: voicyUrlInput ? voicyUrlInput.value : '',
-            youtubeUrl: youtubeUrlInput ? youtubeUrlInput.value : '',
+            youtubeUrls: getYouTubeUrls(),
         };
         localStorage.setItem(AUDIO_SETTINGS_KEY, JSON.stringify(data));
     } catch (_) { /* localStorage 不可は無視 */ }
+}
+
+// ----------------------------------------------------------------------------
+// YouTube URL 入力欄の動的管理 (キュー入力)
+// ----------------------------------------------------------------------------
+function getYouTubeUrls() {
+    if (!youtubeListContainer) return [];
+    return Array.from(youtubeListContainer.querySelectorAll('input[type="url"]'))
+        .map((input) => input.value.trim())
+        .filter((v) => v.length > 0);
+}
+
+function addYouTubeUrlInput(initialValue = '') {
+    if (!youtubeListContainer) return;
+    const row = document.createElement('div');
+    row.className = 'input-group input-group-sm mb-2';
+    row.innerHTML = `
+        <input type="url" class="form-control" placeholder="https://www.youtube.com/watch?v=...">
+        <button type="button" class="btn btn-outline-danger" aria-label="削除">×</button>
+    `;
+    const input = row.querySelector('input');
+    const removeBtn = row.querySelector('button');
+    input.value = initialValue;
+    input.addEventListener('input', saveAudioSourceSettings);
+    removeBtn.addEventListener('click', () => {
+        row.remove();
+        // 1 欄は必ず残す (空欄でも保持)
+        if (youtubeListContainer.children.length === 0) {
+            addYouTubeUrlInput('');
+        }
+        saveAudioSourceSettings();
+    });
+    youtubeListContainer.appendChild(row);
+}
+
+if (youtubeAddButton) {
+    youtubeAddButton.addEventListener('click', () => {
+        addYouTubeUrlInput('');
+    });
 }
 
 loadAudioSourceSettings();
@@ -147,38 +198,39 @@ function onSourceSettingChange() {
 if (workSourceSelect) workSourceSelect.addEventListener('change', onSourceSettingChange);
 if (breakSourceSelect) breakSourceSelect.addEventListener('change', onSourceSettingChange);
 if (voicyUrlInput) voicyUrlInput.addEventListener('input', saveAudioSourceSettings);
-if (youtubeUrlInput) youtubeUrlInput.addEventListener('input', saveAudioSourceSettings);
 
 function getVoicyUrl() {
     const v = (voicyUrlInput && voicyUrlInput.value || '').trim();
     return v || DEFAULT_VOICY_URL;
 }
 
-function getYouTubeUrl() {
-    return (youtubeUrlInput && youtubeUrlInput.value || '').trim();
-}
-
 // ----------------------------------------------------------------------------
 // アクティブな音源を 1 つの文字列キーで管理する
 // ----------------------------------------------------------------------------
 // currentSourceKey の取り得る値:
-//   null                  何も再生していない
-//   'bgm-work'            作業中BGM (MUSIC_MANAGER / audioPlayer)
-//   'bgm-break'           休憩中BGM (MUSIC_MANAGER3 / audioPlayer3)
-//   'voicy:<URL>'         Voicy iframe (URL ごとに別キー)
-//   'youtube:<VIDEO_ID>'  YouTube プレイヤー (動画 ID ごとに別キー)
-//   'none'                「音なし」(stop/start は no-op)
+//   null                       何も再生していない
+//   'bgm-work'                 作業中BGM (MUSIC_MANAGER / audioPlayer)
+//   'bgm-break'                休憩中BGM (MUSIC_MANAGER3 / audioPlayer3)
+//   'voicy:<URL>'              Voicy iframe (URL ごとに別キー)
+//   'youtube:<ID,ID,...>'      YouTube キュー (動画 ID 列ごとに別キー)
+//   'none'                     「音なし」(stop/start は no-op)
 //
 // 同じキーのままフェーズ切替する場合は何もしない (位置維持で継続再生)。
 // キーが変わる場合は旧キーの停止 + 新キーの開始を行う。
 let currentSourceKey = null;
+
+function youtubeQueueIds() {
+    return getYouTubeUrls()
+        .map((u) => YOUTUBE_MANAGER.extractVideoId(u))
+        .filter((id) => !!id);
+}
 
 function sourceKeyFor(phase) {
     const sel = phase === 'break' ? breakSourceSelect : workSourceSelect;
     const v = sel ? sel.value : 'bgm';
     if (v === 'bgm')     return phase === 'break' ? 'bgm-break' : 'bgm-work';
     if (v === 'voicy')   return `voicy:${getVoicyUrl()}`;
-    if (v === 'youtube') return `youtube:${YOUTUBE_MANAGER.extractVideoId(getYouTubeUrl()) || ''}`;
+    if (v === 'youtube') return `youtube:${youtubeQueueIds().join(',')}`;
     return 'none';
 }
 
@@ -187,7 +239,7 @@ function startSource(key) {
     if (key === 'bgm-work')              MUSIC_MANAGER.play();
     else if (key === 'bgm-break')        MUSIC_MANAGER3.play();
     else if (key.startsWith('voicy:'))   VOICY_MANAGER.play(key.slice('voicy:'.length));
-    else if (key.startsWith('youtube:')) YOUTUBE_MANAGER.play(getYouTubeUrl());
+    else if (key.startsWith('youtube:')) YOUTUBE_MANAGER.play(getYouTubeUrls());
 }
 
 function stopSource(key) {
