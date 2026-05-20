@@ -387,6 +387,15 @@ export class YouTubeManager {
         }
     }
 
+    /**
+     * 次回 play() 呼び出し時に新キューの先頭から再生し直すよう、
+     * 現在の再生位置情報をリセットする。並び替え時のトリガー用。
+     */
+    resetPosition() {
+        this.currentVideoId = null;
+        this.currentIndex = -1;
+    }
+
     stop() {
         // Voicy と同じく iframe を破棄せず、pauseVideo() で一時停止のみ。
         // (再生位置を維持してフェーズ往復で同じ場所から再開できる)

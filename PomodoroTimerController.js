@@ -163,16 +163,38 @@ function addYouTubeUrlInput(initialValue = '') {
         e.dataTransfer.effectAllowed = 'move';
         // Firefox は dataTransfer に何か入れないと drag が始まらない
         e.dataTransfer.setData('text/plain', '');
+        // 並び替え検知用に、ドラッグ開始時点の順序を控えておく
+        _dragStartOrder = getYouTubeUrls().join(',');
     });
     row.addEventListener('dragend', () => {
         row.classList.remove('dragging');
         row.removeAttribute('draggable');
-        // 並び替え結果を localStorage に保存し、再生中ならキューも更新
         saveAudioSourceSettings();
-        scheduleUrlRefresh();
+        // 順序が実際に変わったときだけ、新リストの先頭から再生し直す
+        const newOrder = getYouTubeUrls().join(',');
+        if (newOrder !== _dragStartOrder) {
+            handleQueueReorder();
+        }
+        _dragStartOrder = null;
     });
 
     youtubeListContainer.appendChild(row);
+}
+
+// ドラッグ開始時点の YouTube URL 順序 (カンマ連結)。dragend で比較し並び替え検知に使う
+let _dragStartOrder = null;
+
+// 並び替えをトリガーに、新リストの先頭から再生し直す。
+// 再生中で YouTube が現在のフェーズの音源なら即座に新トップを再生、
+// それ以外 (一時停止中・別音源フェーズ) でも内部位置はリセットしておき
+// 次に YouTube がアクティブになった時に先頭から始まるようにする。
+function handleQueueReorder() {
+    YOUTUBE_MANAGER.resetPosition();
+    if (!isPlayingState()) return;
+    const phaseKey = sourceKeyFor(currentPhase());
+    if (!phaseKey.startsWith('youtube:')) return;
+    currentSourceKey = phaseKey;
+    YOUTUBE_MANAGER.play(getYouTubeUrls());
 }
 
 // 並び替え時に、ドラッグ中の行を挿入すべき次兄弟要素を返す
