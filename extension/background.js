@@ -65,7 +65,7 @@ function notify(message) {
     try {
         chrome.notifications.create({
             type: 'basic',
-            iconUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMjgiIGhlaWdodD0iMTI4Ij48Y2lyY2xlIGN4PSI2NCIgY3k9IjY0IiByPSI2MCIgZmlsbD0iIzBkNmVmZCIvPjwvc3ZnPg==',
+            iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
             title: 'PomodoroTimer YouTube Collector',
             message,
         });
