@@ -1,0 +1,26 @@
+{
+    "manifest_version": 3,
+    "name": "PomodoroTimer YouTube Collector",
+    "version": "0.1.0",
+    "description": "開いている YouTube タブを PomodoroTimer の再生リストに一括追加し、追加済みタブを閉じる",
+    "permissions": ["tabs", "scripting", "activeTab", "notifications"],
+    "host_permissions": [
+        "*://www.youtube.com/*",
+        "*://m.youtube.com/*",
+        "*://youtu.be/*"
+    ],
+    "action": {
+        "default_title": "YouTube タブを PomodoroTimer に追加"
+    },
+    "background": {
+        "service_worker": "background.js"
+    },
+    "content_scripts": [
+        {
+            "matches": ["<all_urls>"],
+            "js": ["content.js"],
+            "world": "MAIN",
+            "run_at": "document_start"
+        }
+    ]
+}

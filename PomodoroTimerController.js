@@ -831,5 +831,61 @@ observer.observe(statusElement,
     }
 );
 
+// 拡張機能 (extension/) から呼ばれるフック。
+// ES module スコープを跨いで呼ぶため明示的に window へ生やす。
+// 引数 urls: YouTube 動画 URL の配列。返り値: { added: 実際に追加された件数 }。
+window.PomodoroTimer = window.PomodoroTimer || {};
+window.PomodoroTimer.addYouTubeUrls = function (urls) {
+    if (!Array.isArray(urls)) return { added: 0 };
+
+    const existingIds = new Set(
+        getYouTubeUrls()
+            .map((u) => YOUTUBE_MANAGER.extractVideoId(u))
+            .filter(Boolean)
+    );
+
+    // 末尾の空行を一旦取り除いて、後で ensureTrailingEmpty() で復元する
+    const last = youtubeListContainer && youtubeListContainer.lastElementChild;
+    const lastInput = last && last.querySelector('input[type="url"]');
+    if (lastInput && lastInput.value.trim() === '') last.remove();
+
+    let added = 0;
+    for (const u of urls) {
+        const id = YOUTUBE_MANAGER.extractVideoId(u);
+        if (!id) continue;
+        if (existingIds.has(id)) continue;
+        addYouTubeUrlInput(u);
+        existingIds.add(id);
+        added++;
+    }
+
+    ensureTrailingEmpty();
+    saveAudioSourceSettings();
+    scheduleUrlRefresh();
+    return { added };
+};
+
+// 拡張機能インストール検出: content script (extension/content.js) が MAIN world で
+// document_start に window.__POMODORO_YT_EXTENSION__ を立てるため、load 完了時点で
+// 同期的にチェックすれば判定できる。未インストールかつ「今後表示しない」が立っていない
+// ときだけ Bootstrap モーダルを表示する。
+const EXT_DISMISS_KEY = 'pomodoro_yt_ext_dismissed';
+window.addEventListener('load', () => {
+    if (window.__POMODORO_YT_EXTENSION__) return;
+    try {
+        if (localStorage.getItem(EXT_DISMISS_KEY) === 'true') return;
+    } catch (_) { /* localStorage 不可は無視して表示する */ }
+    const modalEl = document.getElementById('extInstallModal');
+    if (!modalEl || typeof bootstrap === 'undefined') return;
+    const modal = new bootstrap.Modal(modalEl);
+    modalEl.addEventListener('hidden.bs.modal', () => {
+        const dismiss = document.getElementById('extDismissForever');
+        if (dismiss && dismiss.checked) {
+            try { localStorage.setItem(EXT_DISMISS_KEY, 'true'); } catch (_) { }
+        }
+    }, { once: true });
+    modal.show();
+});
+
 main();
 updateActiveSourceDisplay();
