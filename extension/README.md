@@ -15,13 +15,7 @@
 
 `chrome.tabs.query` / `chrome.tabs.remove` を利用できる拡張機能でのみ実現可能。
 
-## インストール
-
-### 推奨: Chrome Web Store (公開後)
-
-ストアからインストールしてください (リンクは公開後に追記)。
-
-### 開発者モード (ストア提出前 / ローカルテスト用)
+## インストール (開発者モード)
 
 1. Chrome (または Edge / Brave 等の Chromium 系) で `chrome://extensions/` を開く
 2. 右上の **「デベロッパーモード」** を ON
@@ -50,23 +44,21 @@
 
 ```
 extension/
-├── manifest.json    # MV3 マニフェスト
-├── background.js    # service worker (アイコンクリック処理)
-├── content.js       # PomodoroTimer ページに注入されるインストールマーカー
-├── icons/           # 拡張アイコン (16/48/128)
-├── privacy.html     # プライバシーポリシー (GitHub Pages で配信)
-├── README.md        # このファイル
-└── STORE_LISTING.md # ストア提出用の掲載文ドラフト (配布物には含めない)
+├── manifest.json  # MV3 マニフェスト
+├── background.js  # service worker (アイコンクリック処理)
+├── content.js     # PomodoroTimer ページに注入されるインストールマーカー
+├── icons/         # 拡張アイコン (16/48/128)
+└── README.md      # このファイル
 ```
 
 ## プライバシー
 
 外部サーバーへの通信は一切なく、個人情報・利用データの収集も保存もしません。
-詳細: <https://fujimotomasahiro.github.io/PomodoroTimer/extension/privacy.html>
+すべての処理はブラウザ内で完結します。
 
 ## スコープ外
 
 - YouTube ショート (`/shorts/`) / プレイリスト (`list=`) / チャンネル URL の自動展開
 - タブクローズ前の確認ダイアログ
 - Firefox / Edge への正式対応 (MV3 互換だが個別検証は別途)
-- ローカル `file://` 環境への対応 (Chrome Web Store ポリシーに沿って GitHub Pages 配信のみ)
+- ローカル `file://` 環境への対応 (GitHub Pages 配信版のみ対象)

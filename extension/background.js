@@ -5,16 +5,20 @@
 chrome.action.onClicked.addListener(async (tab) => {
     if (!tab || !tab.id) return;
 
-    // 1. アクティブタブが PomodoroTimer かをフックの存在で判定
+    // 1. アクティブタブが PomodoroTimer かをフックの存在で判定。
+    //    フック window.PomodoroTimer.addYouTubeUrls はページ側スクリプトが
+    //    MAIN world に立てているため、executeScript も world:'MAIN' で実行しないと
+    //    isolated world の別 window が返ってきてフックが見えず誤判定する。
     let isPomodoroTab = false;
     try {
         const [result] = await chrome.scripting.executeScript({
             target: { tabId: tab.id },
+            world: 'MAIN',
             func: () => typeof window?.PomodoroTimer?.addYouTubeUrls === 'function',
         });
         isPomodoroTab = !!(result && result.result);
     } catch (_) {
-        // file:// のファイルアクセス未許可、chrome:// ページ等で executeScript が拒否されるケース
+        // chrome:// 等 executeScript が拒否されるケース
     }
 
     if (!isPomodoroTab) {
@@ -38,11 +42,12 @@ chrome.action.onClicked.addListener(async (tab) => {
 
     const urls = ytTabs.map((t) => t.url).filter(Boolean);
 
-    // 3. PomodoroTimer 側のフックを呼んで URL を流し込む
+    // 3. PomodoroTimer 側のフックを呼んで URL を流し込む (MAIN world で実行)
     let added = 0;
     try {
         const [injectResult] = await chrome.scripting.executeScript({
             target: { tabId: tab.id },
+            world: 'MAIN',
             func: (urlList) => window.PomodoroTimer.addYouTubeUrls(urlList),
             args: [urls],
         });
