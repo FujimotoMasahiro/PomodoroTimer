@@ -26,11 +26,13 @@ chrome.action.onClicked.addListener(async (tab) => {
         return;
     }
 
-    // 2. YouTube watch タブを列挙
+    // 2. YouTube watch / shorts タブを列挙
     const ytTabs = await chrome.tabs.query({
         url: [
             '*://www.youtube.com/watch*',
+            '*://www.youtube.com/shorts/*',
             '*://m.youtube.com/watch*',
+            '*://m.youtube.com/shorts/*',
             '*://youtu.be/*',
         ],
     });
