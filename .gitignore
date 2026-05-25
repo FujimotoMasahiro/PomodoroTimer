@@ -1,0 +1,9 @@
+# Claude Code (ローカル固有設定はコミットしない / 共有するエージェント定義は含める)
+.claude/settings.local.json
+
+# QA / Playwright
+qa/node_modules/
+qa/reports/test-artifacts/
+qa/reports/playwright-report/
+qa/reports/screenshots/
+.DS_Store

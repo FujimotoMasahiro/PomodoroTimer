@@ -4,7 +4,7 @@ import { MusicManager, VoicyManager, YouTubeManager } from "./MusicManager.js";
 const STATUS_ENUM = {
     INITIAL: {
         rawValue: 1,
-        string: "開始",
+        string: "待機中",
     },
     WORKING: {
         rawValue: 2,
@@ -310,7 +310,7 @@ function updateActiveSourceDisplay() {
 
     if (activePhaseBadge) {
         const map = {
-            [STATUS_ENUM.INITIAL.rawValue]: { text: '停止中', cls: 'bg-secondary' },
+            [STATUS_ENUM.INITIAL.rawValue]: { text: '待機中', cls: 'bg-secondary' },
             [STATUS_ENUM.WORKING.rawValue]: { text: '作業中', cls: 'bg-primary' },
             [STATUS_ENUM.WORKING_POSE.rawValue]: { text: '一時停止中', cls: 'bg-warning' },
             [STATUS_ENUM.BREAKING.rawValue]: { text: '休憩中', cls: 'bg-success' },
@@ -625,7 +625,9 @@ function buttonDisplayUpdate() {
             startButton.style.display = 'none';
             pauseButton.style.display = 'none';
             restartButton.style.display = 'inline-block';
-            skipButton.style.display = 'inline-block';
+            // 一時停止中は timer() が POSE を処理しないため skip は機能しない。
+            // 「見えるのに押せない」状態を避け、操作を再開/リセットに絞る。
+            skipButton.style.display = 'none';
             resetButton.style.display = 'inline-block';
             break;
         case STATUS_ENUM.BREAKING.rawValue:
@@ -639,7 +641,7 @@ function buttonDisplayUpdate() {
             startButton.style.display = 'none';
             pauseButton.style.display = 'none';
             restartButton.style.display = 'inline-block';
-            skipButton.style.display = 'inline-block';
+            skipButton.style.display = 'none';
             resetButton.style.display = 'inline-block';
             break;
         case STATUS_ENUM.LONGBREAKING.rawValue:
@@ -653,7 +655,7 @@ function buttonDisplayUpdate() {
             startButton.style.display = 'none';
             pauseButton.style.display = 'none';
             restartButton.style.display = 'inline-block';
-            skipButton.style.display = 'inline-block';
+            skipButton.style.display = 'none';
             resetButton.style.display = 'inline-block';
             break;
         default:
@@ -705,6 +707,9 @@ settingsForm.addEventListener('submit', (e) => {
 
 // イベントリスナー
 startButton.addEventListener('click', function () {
+    // 開始は待機(INITIAL)状態からのみ。作業中などに再発火しても
+    // cycles を二重カウントしないようガードする。
+    if (status !== STATUS_ENUM.INITIAL.rawValue) return;
     // ステータス→作業中
     status = STATUS_ENUM.WORKING.rawValue;
     statusElement.textContent = STATUS_ENUM.WORKING.string;
@@ -788,7 +793,7 @@ const observer = new MutationObserver((mutationsList) => {
                     break;
                 case STATUS_ENUM.WORKING.rawValue:
                     // 直前のステータスが一時停止中の場合
-                    if (mutation.removedNodes[0].textContent !== STATUS_ENUM.WORKING_POSE.string) {
+                    if (mutation.removedNodes[0]?.textContent !== STATUS_ENUM.WORKING_POSE.string) {
                         countupCycles();
                         timerDisplayUpdate();
                     }
@@ -798,7 +803,7 @@ const observer = new MutationObserver((mutationsList) => {
                     break;
                 case STATUS_ENUM.BREAKING.rawValue:
                     // 直前のステータスが一時停止中の場合
-                    if (mutation.removedNodes[0].textContent !== STATUS_ENUM.BREAKING_POSE.string) {
+                    if (mutation.removedNodes[0]?.textContent !== STATUS_ENUM.BREAKING_POSE.string) {
                         timerDisplayUpdate();
                     }
                     startBreakingTimer();
@@ -807,7 +812,7 @@ const observer = new MutationObserver((mutationsList) => {
                     break;
                 case STATUS_ENUM.LONGBREAKING.rawValue:
                     // 直前のステータスが一時停止中の場合
-                    if (mutation.removedNodes[0].textContent !== STATUS_ENUM.LONGBREAKING_POSE.string) {
+                    if (mutation.removedNodes[0]?.textContent !== STATUS_ENUM.LONGBREAKING_POSE.string) {
                         timerDisplayUpdate();
                     }
                     startBreakingTimer();

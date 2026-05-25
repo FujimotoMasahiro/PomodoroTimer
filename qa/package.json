@@ -1,0 +1,15 @@
+{
+  "name": "pomodoro-timer-qa",
+  "version": "1.0.0",
+  "private": true,
+  "description": "QA / テスト一式 (pomodoro-tester エージェント専用)。アプリ本体のコードは含まない。",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}
