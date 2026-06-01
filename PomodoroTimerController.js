@@ -483,6 +483,9 @@ async function releaseWakeLock() {
 document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && isPlayingState()) {
         acquireWakeLock();
+        // 非表示中は setInterval が間引かれ表示が遅れている可能性があるため、
+        // 復帰時に実時刻ベースで残り時間を即再計算する (必要なら遷移も走る)。
+        timer();
     }
 });
 
@@ -518,6 +521,9 @@ let longBreakFrequency = 4; // 初期値
 let intervalId;
 let cycles = 0;
 let time = 0;
+// 現在稼働中セグメントの終了時刻 (Date.now() ベースの絶対時刻)。
+// setInterval の tick 回数ではなく、この終了時刻と現在時刻の差で残り時間を算出する。
+let endTime = 0;
 
 let status;
 
@@ -537,11 +543,20 @@ function updateTimerDisplay(time) {
     timerElement.textContent = `${minutes}:${seconds}`;
 }
 
+// 残り秒数 (time) から終了時刻を確定し、毎秒の再計算を開始する。
+// setInterval はバックグラウンドタブ等で間引かれ tick 回数 == 経過秒数 に
+// ならない (ドリフトする) ため、tick ごとに「終了時刻 - 現在時刻」で残りを
+// 算出する。これにより実時計とのズレが累積しない。
+function startCountdown() {
+    endTime = Date.now() + time * oneSecond;
+    timer();
+    intervalId = setInterval(timer, oneSecond);
+}
+
 // タイマーのスタート
 function startWorkingTimer() {
 
-    timer();
-    intervalId = setInterval(timer, oneSecond);
+    startCountdown();
 
     // 音源は source manager に任せる (旧 source と異なれば自動で停止 + 新 source 開始)
     setActiveSource('work');
@@ -553,8 +568,7 @@ function startWorkingTimer() {
 // タイマーのスタート
 function startBreakingTimer() {
 
-    timer();
-    intervalId = setInterval(timer, oneSecond);
+    startCountdown();
 
     setActiveSource('break');
     MUSIC_MANAGER2.play();
@@ -569,7 +583,11 @@ function resetTimer() {
 }
 
 function timer() {
-    if (time <= 0) {
+    // 終了時刻と現在時刻の差から残り秒数を再計算する (tick 回数の積算ではない)。
+    // ceil により「残り 0 秒超〜1 秒」の間は 00:01 を表示し、終了時刻ちょうどで遷移する。
+    const remaining = Math.ceil((endTime - Date.now()) / oneSecond);
+    if (remaining <= 0) {
+        time = 0;
         clearInterval(intervalId);
 
         // スイッチ文
@@ -598,8 +616,8 @@ function timer() {
         }
 
     } else {
-        updateTimerDisplay(time);
-        time--;
+        time = remaining;
+        updateTimerDisplay(remaining);
     }
 }
 
@@ -762,7 +780,10 @@ restartButton.addEventListener('click', function () {
 });
 
 skipButton.addEventListener('click', function () {
+    // 終了時刻を現在に倒して即時完了扱いにする (timer() は time ではなく
+    // 終了時刻を見るため、time=0 だけでは遷移しない)。
     time = 0;
+    endTime = Date.now();
     clearInterval(intervalId);
     timer();
 });
