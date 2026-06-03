@@ -55,7 +55,8 @@ const AUDIO_SETTINGS_KEY = 'pomodoro_audio_source_settings';
 const VALID_SOURCES = ['bgm', 'voicy', 'youtube', 'none'];
 
 function loadAudioSourceSettings() {
-    let restoredUrls = [];
+    // restoredEntries: { url: string, study: boolean }[]
+    let restoredEntries = [];
     try {
         const raw = localStorage.getItem(AUDIO_SETTINGS_KEY);
         if (raw) {
@@ -70,17 +71,27 @@ function loadAudioSourceSettings() {
                 voicyUrlInput.value = s.voicyUrl;
             }
             if (Array.isArray(s.youtubeUrls)) {
-                restoredUrls = s.youtubeUrls.filter((u) => typeof u === 'string');
+                // 新形式 ({url, study}) と旧形式 (文字列) の両方を受け付ける
+                restoredEntries = s.youtubeUrls
+                    .map((item) => {
+                        if (typeof item === 'string') return { url: item, study: false };
+                        if (item && typeof item.url === 'string') return { url: item.url, study: !!item.study };
+                        return null;
+                    })
+                    .filter(Boolean);
             } else if (typeof s.youtubeUrl === 'string' && s.youtubeUrl) {
                 // 旧データ (単一文字列) からの移行
-                restoredUrls = [s.youtubeUrl];
+                restoredEntries = [{ url: s.youtubeUrl, study: false }];
+            }
+            if (s.youtubeMode === 'study' || s.youtubeMode === 'work') {
+                setYouTubeMode(s.youtubeMode);
             }
         }
     } catch (_) { /* localStorage 不可・JSON 不正は既定値で続行 */ }
     // YouTube URL 入力欄を復元。末尾には常に空欄を 1 つ保持する
     if (youtubeListContainer) {
         youtubeListContainer.innerHTML = '';
-        restoredUrls.forEach((u) => addYouTubeUrlInput(u));
+        restoredEntries.forEach((e) => addYouTubeUrlInput(e.url, e.study));
         addYouTubeUrlInput('');
     }
 }
@@ -91,29 +102,69 @@ function saveAudioSourceSettings() {
             workSource: workSourceSelect ? workSourceSelect.value : 'bgm',
             breakSource: breakSourceSelect ? breakSourceSelect.value : 'bgm',
             voicyUrl: voicyUrlInput ? voicyUrlInput.value : '',
-            youtubeUrls: getYouTubeUrls(),
+            youtubeUrls: getYouTubeEntries(),
+            youtubeMode: currentYouTubeMode(),
         };
         localStorage.setItem(AUDIO_SETTINGS_KEY, JSON.stringify(data));
     } catch (_) { /* localStorage 不可は無視 */ }
 }
 
 // ----------------------------------------------------------------------------
-// YouTube URL 入力欄の動的管理 (キュー入力)
+// YouTube 再生モード (勉強 / 作業) の管理
 // ----------------------------------------------------------------------------
-function getYouTubeUrls() {
-    if (!youtubeListContainer) return [];
-    return Array.from(youtubeListContainer.querySelectorAll('input[type="url"]'))
-        .map((input) => input.value.trim())
-        .filter((v) => v.length > 0);
+// 'study' … チェック済み(勉強用)動画だけを再生対象にする
+// 'work'  … 未チェック(垂れ流し用)動画だけを再生対象にする
+function currentYouTubeMode() {
+    const checked = document.querySelector('input[name="yt-mode"]:checked');
+    return checked && checked.value === 'study' ? 'study' : 'work';
 }
 
-function addYouTubeUrlInput(initialValue = '') {
+function setYouTubeMode(mode) {
+    const el = document.getElementById(mode === 'study' ? 'yt-mode-study' : 'yt-mode-work');
+    if (el) el.checked = true;
+}
+
+// ----------------------------------------------------------------------------
+// YouTube URL 入力欄の動的管理 (キュー入力)
+// ----------------------------------------------------------------------------
+// 各行を { url, study } として取り出す (空 URL 行は除外)。
+function getYouTubeEntries() {
+    if (!youtubeListContainer) return [];
+    return Array.from(youtubeListContainer.querySelectorAll('.yt-url-row'))
+        .map((row) => {
+            const input = row.querySelector('input[type="url"]');
+            const check = row.querySelector('.yt-study-check');
+            return {
+                url: input ? input.value.trim() : '',
+                study: check ? check.checked : false,
+            };
+        })
+        .filter((e) => e.url.length > 0);
+}
+
+// すべての URL (モード非依存)。拡張フックの重複判定などに使う。
+function getYouTubeUrls() {
+    return getYouTubeEntries().map((e) => e.url);
+}
+
+// 現在のモードで実際に再生対象となる URL のみを上から順に返す。
+function getActiveYouTubeUrls() {
+    const study = currentYouTubeMode() === 'study';
+    return getYouTubeEntries()
+        .filter((e) => (study ? e.study : !e.study))
+        .map((e) => e.url);
+}
+
+function addYouTubeUrlInput(initialValue = '', study = false) {
     if (!youtubeListContainer) return;
     const row = document.createElement('div');
     row.className = 'yt-url-row mb-2';
     row.innerHTML = `
         <div class="input-group input-group-sm">
             <span class="input-group-text drag-handle" style="cursor: grab; user-select: none;" title="ドラッグで並び替え">≡</span>
+            <span class="input-group-text yt-study-cell" title="チェックすると勉強用（しっかり見る）として扱います">
+                <input class="form-check-input mt-0 yt-study-check" type="checkbox" aria-label="勉強用">
+            </span>
             <span class="input-group-text p-0 yt-thumb-cell" style="display:none;">
                 <img class="yt-thumb" alt="" style="width: 60px; height: 45px; object-fit: cover; display: block;">
             </span>
@@ -124,12 +175,21 @@ function addYouTubeUrlInput(initialValue = '') {
             動画 URL を解析できませんでした。YouTube の URL を入力してください。
         </div>
     `;
-    const input = row.querySelector('input');
+    const input = row.querySelector('input[type="url"]');
     const removeBtn = row.querySelector('button');
     const handle = row.querySelector('.drag-handle');
     const thumbCell = row.querySelector('.yt-thumb-cell');
     const thumbImg = row.querySelector('.yt-thumb');
     const warningEl = row.querySelector('.yt-url-warning');
+    const studyCheck = row.querySelector('.yt-study-check');
+
+    // 勉強用フラグ: チェック変更で保存し、現在モードの再生対象が変わるので
+    // 再生中なら反映する (現在再生中の動画が対象に残っていれば中断しない)。
+    studyCheck.checked = !!study;
+    studyCheck.addEventListener('change', () => {
+        saveAudioSourceSettings();
+        scheduleUrlRefresh();
+    });
 
     // 入力値からサムネ表示・警告表示を更新し、有効な videoId なら true を返す
     function updateValidation() {
@@ -175,20 +235,24 @@ function addYouTubeUrlInput(initialValue = '') {
         e.dataTransfer.effectAllowed = 'move';
         // Firefox は dataTransfer に何か入れないと drag が始まらない
         e.dataTransfer.setData('text/plain', '');
-        // 並び替え検知用に、ドラッグ開始時点の順序を控えておく
-        _dragStartOrder = getYouTubeUrls().join(',');
+        // 並び替え検知用に、ドラッグ開始時点の「再生対象(アクティブ)」順序を控えておく
+        _dragStartActiveIds = youtubeQueueIds();
     });
     row.addEventListener('dragend', () => {
         row.classList.remove('dragging');
         row.removeAttribute('draggable');
         ensureTrailingEmpty();
         saveAudioSourceSettings();
-        // 順序が実際に変わったときだけ、新リストの先頭から再生し直す
-        const newOrder = getYouTubeUrls().join(',');
-        if (newOrder !== _dragStartOrder) {
-            handleQueueReorder();
-        }
-        _dragStartOrder = null;
+        // アクティブ(再生対象)リストの変化だけを見る。
+        // ・順序に変化なし            → 何もしない
+        // ・先頭が変わった            → 新トップから再生し直す (再読み込み)
+        // ・先頭は同じで順序だけ変化  → 再生は止めずキュー順だけ更新 (再読み込みしない)
+        const before = _dragStartActiveIds || [];
+        const after = youtubeQueueIds();
+        _dragStartActiveIds = null;
+        if (after.join(',') === before.join(',')) return;
+        const firstChanged = (after[0] || null) !== (before[0] || null);
+        reorderYouTubeQueue(firstChanged);
     });
 
     youtubeListContainer.appendChild(row);
@@ -208,20 +272,23 @@ function ensureTrailingEmpty() {
     }
 }
 
-// ドラッグ開始時点の YouTube URL 順序 (カンマ連結)。dragend で比較し並び替え検知に使う
-let _dragStartOrder = null;
+// ドラッグ開始時点のアクティブ(再生対象)動画 ID 列。dragend で比較し並び替え検知に使う
+let _dragStartActiveIds = null;
 
-// 並び替えをトリガーに、新リストの先頭から再生し直す。
-// 再生中で YouTube が現在のフェーズの音源なら即座に新トップを再生、
-// それ以外 (一時停止中・別音源フェーズ) でも内部位置はリセットしておき
-// 次に YouTube がアクティブになった時に先頭から始まるようにする。
-function handleQueueReorder() {
-    YOUTUBE_MANAGER.resetPosition();
+// 並び替えを再生に反映する。
+// restartFromTop=true (先頭が変わった) のときは内部位置をリセットし、
+// 新リストの先頭から再生し直す (= 再読み込み)。
+// restartFromTop=false (先頭は同じ) のときは位置をリセットせず、現在の動画を
+// 止めずにキュー順だけ更新する (= 再読み込みしない)。
+// いずれも一時停止中・別音源フェーズなら、次に YouTube がアクティブになった
+// 時点で新しい順序が反映される。
+function reorderYouTubeQueue(restartFromTop) {
+    if (restartFromTop) YOUTUBE_MANAGER.resetPosition();
     if (!isPlayingState()) return;
     const phaseKey = sourceKeyFor(currentPhase());
     if (!phaseKey.startsWith('youtube:')) return;
     currentSourceKey = phaseKey;
-    YOUTUBE_MANAGER.play(getYouTubeUrls());
+    YOUTUBE_MANAGER.play(getActiveYouTubeUrls());
 }
 
 // 並び替え時に、ドラッグ中の行を挿入すべき次兄弟要素を返す
@@ -336,6 +403,15 @@ if (voicyUrlInput) voicyUrlInput.addEventListener('input', () => {
     scheduleUrlRefresh();
 });
 
+// 勉強 / 作業 モード切替: 再生対象が変わるので保存しつつ、再生中なら新モードの
+// 対象キューへ即座に差し替える (refreshActiveSourceIfPlaying 経由)。
+document.querySelectorAll('input[name="yt-mode"]').forEach((radio) => {
+    radio.addEventListener('change', () => {
+        saveAudioSourceSettings();
+        scheduleUrlRefresh();
+    });
+});
+
 function getVoicyUrl() {
     const v = (voicyUrlInput && voicyUrlInput.value || '').trim();
     return v || DEFAULT_VOICY_URL;
@@ -356,8 +432,10 @@ function getVoicyUrl() {
 // キーが変わる場合は旧キーの停止 + 新キーの開始を行う。
 let currentSourceKey = null;
 
+// 現在のモードで実際に再生対象となる動画 ID 列 (sourceKey の一部に使う)。
+// モードを切り替えると対象が変わり key も変わるため、再生中なら自動で差し替わる。
 function youtubeQueueIds() {
-    return getYouTubeUrls()
+    return getActiveYouTubeUrls()
         .map((u) => YOUTUBE_MANAGER.extractVideoId(u))
         .filter((id) => !!id);
 }
@@ -376,7 +454,13 @@ function startSource(key) {
     if (key === 'bgm-work')              MUSIC_MANAGER.play();
     else if (key === 'bgm-break')        MUSIC_MANAGER3.play();
     else if (key.startsWith('voicy:'))   VOICY_MANAGER.play(key.slice('voicy:'.length));
-    else if (key.startsWith('youtube:')) YOUTUBE_MANAGER.play(getYouTubeUrls());
+    else if (key.startsWith('youtube:')) {
+        // 現在のモードで再生対象がある場合のみ再生。対象が空 (例: 勉強モードだが
+        // チェック済み動画が無い) なら何も鳴らさず一時停止しておく。
+        const urls = getActiveYouTubeUrls();
+        if (urls.length) YOUTUBE_MANAGER.play(urls);
+        else YOUTUBE_MANAGER.pause();
+    }
 }
 
 function stopSource(key) {

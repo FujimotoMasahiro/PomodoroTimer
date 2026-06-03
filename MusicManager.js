@@ -251,6 +251,71 @@ export class YouTubeManager {
         // 動画が最後まで再生されたときに呼ばれるコールバック。
         // 引数は再生終了した videoId。UI からの URL 行削除などに使う。
         this.onVideoEnded = typeof options.onVideoEnded === 'function' ? options.onVideoEnded : null;
+        // 再生位置の永続化: videoId -> 再生秒数 のマップを localStorage に保存し、
+        // リロード後に各動画を途中(保存位置)から再開できるようにする。
+        this.progressKey = options.progressKey || 'pomodoro_youtube_progress';
+        this._progressIntervalMs = 10000; // 10 秒ごとに現在位置を記録
+        this._progressTimer = null;
+    }
+
+    // ---- 再生位置の永続化 (localStorage) --------------------------------------
+    _loadProgressMap() {
+        try {
+            const raw = localStorage.getItem(this.progressKey);
+            const obj = raw ? JSON.parse(raw) : null;
+            return (obj && typeof obj === 'object') ? obj : {};
+        } catch (_) {
+            return {};
+        }
+    }
+
+    _writeProgressMap(map) {
+        try { localStorage.setItem(this.progressKey, JSON.stringify(map)); } catch (_) { /* 保存不可は無視 */ }
+    }
+
+    // 指定動画の保存済み再生秒数を返す (未保存・不正値は 0)。
+    getSavedSeconds(videoId) {
+        if (!videoId) return 0;
+        const v = this._loadProgressMap()[videoId];
+        return (typeof v === 'number' && isFinite(v) && v > 0) ? Math.floor(v) : 0;
+    }
+
+    _saveSeconds(videoId, seconds) {
+        if (!videoId) return;
+        const map = this._loadProgressMap();
+        if (typeof seconds === 'number' && isFinite(seconds) && seconds > 0) {
+            map[videoId] = Math.floor(seconds);
+        } else {
+            delete map[videoId];
+        }
+        this._writeProgressMap(map);
+    }
+
+    _clearSaved(videoId) {
+        if (!videoId) return;
+        const map = this._loadProgressMap();
+        if (videoId in map) {
+            delete map[videoId];
+            this._writeProgressMap(map);
+        }
+    }
+
+    // 現在再生中の動画位置を 10 秒間隔で記録するインターバルを開始する。
+    // player 生成後に一度だけ起動し、以後は常駐 (記録対象が無ければ no-op)。
+    _startProgressTracking() {
+        if (this._progressTimer) return;
+        this._progressTimer = setInterval(() => this._recordProgress(), this._progressIntervalMs);
+    }
+
+    _recordProgress() {
+        if (!this.player || !this.currentVideoId) return;
+        try {
+            if (typeof this.player.getCurrentTime !== 'function') return;
+            const t = this.player.getCurrentTime();
+            if (typeof t === 'number' && isFinite(t) && t > 0) {
+                this._saveSeconds(this.currentVideoId, t);
+            }
+        } catch (_) { /* API 未準備等は無視 */ }
     }
 
     extractVideoId(url) {
@@ -324,14 +389,16 @@ export class YouTubeManager {
         await this.ensureApiLoaded();
 
         if (!this.player) {
-            // 初回生成
+            // 初回生成。保存済み再生位置があれば start で途中から開始する
+            // (リロード後に続きから再生)。
             this.currentVideoId = targetVideoId;
             this.container.innerHTML = '<div id="youtube-iframe-target"></div>';
+            const startSeconds = this.getSavedSeconds(targetVideoId);
             this.player = new YT.Player('youtube-iframe-target', {
                 height: '400',
                 width: '100%',
                 videoId: targetVideoId,
-                playerVars: { rel: 0, modestbranding: 1, playsinline: 1 },
+                playerVars: { rel: 0, modestbranding: 1, playsinline: 1, start: startSeconds },
                 events: {
                     onReady: (e) => {
                         if (e && e.target && typeof e.target.playVideo === 'function') {
@@ -341,6 +408,7 @@ export class YouTubeManager {
                     onStateChange: (e) => this._onStateChange(e),
                 },
             });
+            this._startProgressTracking();
             return;
         }
 
@@ -348,18 +416,31 @@ export class YouTubeManager {
             // 同じ動画を継続: playVideo() で再生開始/再開 (再生中なら no-op)
             if (typeof this.player.playVideo === 'function') this.player.playVideo();
         } else {
-            // 別の動画へ切替: loadVideoById で iframe 再生成せず動画だけ差し替え
+            // 別の動画へ切替: loadVideoById で iframe 再生成せず動画だけ差し替え。
+            // 保存済み位置があれば startSeconds で途中から再開する。
             if (typeof this.player.loadVideoById === 'function') {
-                this.player.loadVideoById(targetVideoId);
-                this.currentVideoId = targetVideoId;
+                this._loadVideoWithResume(targetVideoId);
             }
         }
+    }
+
+    // 保存済み再生位置を考慮して loadVideoById を呼ぶ。
+    _loadVideoWithResume(videoId) {
+        const startSeconds = this.getSavedSeconds(videoId);
+        if (startSeconds > 0) {
+            this.player.loadVideoById({ videoId, startSeconds });
+        } else {
+            this.player.loadVideoById(videoId);
+        }
+        this.currentVideoId = videoId;
     }
 
     _onStateChange(event) {
         // YT.PlayerState.ENDED === 0 (動画が最後まで再生されたとき)
         if (event && event.data === 0) {
             const endedId = this.currentVideoId;
+            // 最後まで再生し切ったので保存位置は破棄 (次回は頭から再生)。
+            this._clearSaved(endedId);
             this._advance();
             if (this.onVideoEnded && endedId) {
                 try { this.onVideoEnded(endedId); } catch (_) { /* UI 側エラーは握りつぶす */ }
@@ -375,9 +456,10 @@ export class YouTubeManager {
         }
         this.currentIndex = next;
         const videoId = this.queue[next];
-        this.currentVideoId = videoId;
         if (this.player && typeof this.player.loadVideoById === 'function') {
-            this.player.loadVideoById(videoId);
+            this._loadVideoWithResume(videoId);
+        } else {
+            this.currentVideoId = videoId;
         }
     }
 

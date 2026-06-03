@@ -12,6 +12,9 @@ export default defineConfig({
   // バグレポート用のスクショ/動画/トレースの保存先
   outputDir: './reports/test-artifacts',
   fullyParallel: false, // 状態機械を順に検証するため直列
+  // 1 worker に固定。実時刻ベースの timer-drift spec は CPU 競合に弱く、
+  // 複数 worker で並列実行すると visibilitychange 等のタイミング検証が flaky になる。
+  workers: 1,
   forbidOnly: !!process.env.CI,
   retries: 0,
   reporter: [

@@ -117,9 +117,21 @@
                             <div class="form-text">Voicy 埋め込み URL (既定は西野亮廣チャンネル)</div>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">YouTube 再生リスト</label>
+                            <label class="form-label d-block">YouTube 再生リスト</label>
+                            <div class="btn-group btn-group-sm mb-2" role="group" aria-label="再生モード">
+                                <input type="radio" class="btn-check" name="yt-mode" id="yt-mode-work" value="work"
+                                    autocomplete="off" checked>
+                                <label class="btn btn-outline-primary" for="yt-mode-work">作業モード（垂れ流し）</label>
+                                <input type="radio" class="btn-check" name="yt-mode" id="yt-mode-study" value="study"
+                                    autocomplete="off">
+                                <label class="btn btn-outline-primary" for="yt-mode-study">勉強モード</label>
+                            </div>
                             <div id="youtube-url-list"></div>
-                            <div class="form-text">上から順に再生され、動画終了で自動的に次へ切替わります。URL を入力すると新しい入力欄が自動で追加されます。</div>
+                            <div class="form-text">
+                                各行のチェックボックスにチェックを入れた動画が「勉強用（しっかり見る）」です。
+                                勉強モードはチェック済み、作業モードは未チェックの動画だけを上から順に再生します。
+                                URL を入力すると新しい入力欄が自動で追加されます。
+                            </div>
                         </div>
                         <hr>
 

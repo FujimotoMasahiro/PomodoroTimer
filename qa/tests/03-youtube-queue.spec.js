@@ -82,6 +82,74 @@ test.describe('拡張フック window.PomodoroTimer.addYouTubeUrls', () => {
   });
 });
 
+const AUDIO_KEY = 'pomodoro_audio_source_settings';
+const VALID_URL_2 = 'https://www.youtube.com/watch?v=abcdefghijk';
+const VALID_ID_2 = 'abcdefghijk';
+
+async function readAudioSettings(page) {
+  return page.evaluate((k) => {
+    try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (_) { return null; }
+  }, AUDIO_KEY);
+}
+
+test.describe('勉強/作業モードのフラグとチェックボックス', () => {
+  test.beforeEach(async ({ page }) => {
+    await gotoApp(page);
+  });
+
+  test('各行に勉強用チェックボックスが表示される', async ({ page }) => {
+    const firstInput = page.locator('#youtube-url-list .yt-url-row input[type="url"]').first();
+    await firstInput.fill(VALID_URL);
+    await expect(page.locator('#youtube-url-list .yt-url-row')).toHaveCount(2);
+    await expect(page.locator('#youtube-url-list .yt-url-row').first().locator('.yt-study-check')).toBeVisible();
+  });
+
+  test('チェックすると localStorage に {url, study:true} 形式で保存される', async ({ page }) => {
+    const firstRow = page.locator('#youtube-url-list .yt-url-row').first();
+    await firstRow.locator('input[type="url"]').fill(VALID_URL);
+    await firstRow.locator('.yt-study-check').check();
+    const s = await readAudioSettings(page);
+    expect(Array.isArray(s.youtubeUrls)).toBe(true);
+    expect(s.youtubeUrls[0]).toEqual({ url: VALID_URL, study: true });
+  });
+
+  test('勉強フラグはリロード後も復元される', async ({ page }) => {
+    const firstRow = page.locator('#youtube-url-list .yt-url-row').first();
+    await firstRow.locator('input[type="url"]').fill(VALID_URL);
+    await firstRow.locator('.yt-study-check').check();
+    await page.reload();
+    await expect(page.locator('#timer')).toHaveText(/^\d{2}:\d{2}$/);
+    const restored = page.locator('#youtube-url-list .yt-url-row').first().locator('.yt-study-check');
+    await expect(restored).toBeChecked();
+  });
+
+  test('モード切替は localStorage に保存され、リロードで復元される', async ({ page }) => {
+    // 既定は作業モード
+    expect(await page.locator('#yt-mode-work').isChecked()).toBe(true);
+    await page.locator('label[for="yt-mode-study"]').click();
+    const s = await readAudioSettings(page);
+    expect(s.youtubeMode).toBe('study');
+    await page.reload();
+    await expect(page.locator('#timer')).toHaveText(/^\d{2}:\d{2}$/);
+    await expect(page.locator('#yt-mode-study')).toBeChecked();
+  });
+
+  test('旧形式 (文字列配列) の youtubeUrls も読み込める', async ({ page }) => {
+    await gotoApp(page, {
+      localStorage: {
+        [AUDIO_KEY]: JSON.stringify({ workSource: 'youtube', youtubeUrls: [VALID_URL, VALID_URL_2] }),
+      },
+    });
+    // 2 URL + 末尾空欄 = 3 行
+    await expect(page.locator('#youtube-url-list .yt-url-row')).toHaveCount(3);
+    const inputs = page.locator('#youtube-url-list .yt-url-row input[type="url"]');
+    await expect(inputs.nth(0)).toHaveValue(VALID_URL);
+    await expect(inputs.nth(1)).toHaveValue(VALID_URL_2);
+    // 旧形式はすべて未チェック (study:false) 扱い
+    await expect(page.locator('#youtube-url-list .yt-study-check').nth(0)).not.toBeChecked();
+  });
+});
+
 test.describe('拡張インストール案内モーダル', () => {
   test('未インストール & 未 dismiss なら load 時に表示される', async ({ page }) => {
     // このテストだけモーダルを抑止しない
