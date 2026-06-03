@@ -150,6 +150,41 @@ test.describe('勉強/作業モードのフラグとチェックボックス', (
   });
 });
 
+test.describe('モードによる一覧フィルタリング', () => {
+  test.beforeEach(async ({ page }) => {
+    await gotoApp(page);
+  });
+
+  test('作業モードはチェック済み(勉強)動画を一覧から隠し、勉強モードで表示する', async ({ page }) => {
+    const rows = page.locator('#youtube-url-list .yt-url-row');
+    await rows.nth(0).locator('input[type="url"]').fill(VALID_URL);     // A: 未チェック
+    await rows.nth(1).locator('input[type="url"]').fill(VALID_URL_2);   // B: 勉強用にする
+    await rows.nth(1).locator('.yt-study-check').check();
+
+    // 作業モード(既定): A 表示 / B(勉強) 非表示 / 末尾空行は表示
+    await expect(rows.nth(0)).toBeVisible();
+    await expect(rows.nth(1)).toBeHidden();
+    await expect(rows.nth(2)).toBeVisible();
+
+    // 勉強モードへ: B のみ表示 / A 非表示 / 末尾空行は表示
+    await page.locator('label[for="yt-mode-study"]').click();
+    await expect(rows.nth(1)).toBeVisible();
+    await expect(rows.nth(0)).toBeHidden();
+    await expect(rows.nth(2)).toBeVisible();
+  });
+
+  test('勉強モードで追加した動画はチェック済みで一覧に残る', async ({ page }) => {
+    await page.locator('label[for="yt-mode-study"]').click();
+    const rows = page.locator('#youtube-url-list .yt-url-row');
+    await rows.nth(0).locator('input[type="url"]').fill(VALID_URL);
+    // 勉強モードで足した動画は study=true 既定 → 表示されたまま
+    await expect(rows.nth(0)).toBeVisible();
+    await expect(rows.nth(0).locator('.yt-study-check')).toBeChecked();
+    const s = await readAudioSettings(page);
+    expect(s.youtubeUrls[0]).toEqual({ url: VALID_URL, study: true });
+  });
+});
+
 test.describe('拡張インストール案内モーダル', () => {
   test('未インストール & 未 dismiss なら load 時に表示される', async ({ page }) => {
     // このテストだけモーダルを抑止しない

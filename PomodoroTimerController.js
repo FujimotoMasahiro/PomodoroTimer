@@ -93,6 +93,8 @@ function loadAudioSourceSettings() {
         youtubeListContainer.innerHTML = '';
         restoredEntries.forEach((e) => addYouTubeUrlInput(e.url, e.study));
         addYouTubeUrlInput('');
+        // 復元後、現在モードに合わせて一覧を絞り込む
+        applyYouTubeModeFilter();
     }
 }
 
@@ -155,7 +157,31 @@ function getActiveYouTubeUrls() {
         .map((e) => e.url);
 }
 
-function addYouTubeUrlInput(initialValue = '', study = false) {
+// 現在モードに合わせて一覧の各行の表示/非表示を切り替える。
+// ・勉強モード … チェック済み(勉強用)の行だけ表示
+// ・作業モード … 未チェック(垂れ流し用)の行だけ表示
+// 空行(主に末尾の追加用)はどちらのモードでも常に表示し、チェック状態を現在モードに
+// 合わせておく。こうすると、その行に URL を入れた瞬間から現在モードの一覧に残る。
+function applyYouTubeModeFilter() {
+    if (!youtubeListContainer) return;
+    const study = currentYouTubeMode() === 'study';
+    youtubeListContainer.querySelectorAll('.yt-url-row').forEach((row) => {
+        const input = row.querySelector('input[type="url"]');
+        const check = row.querySelector('.yt-study-check');
+        const isEmpty = !input || input.value.trim() === '';
+        if (isEmpty) {
+            if (check) check.checked = study;
+            row.style.display = '';
+            return;
+        }
+        const matches = check ? (study ? check.checked : !check.checked) : !study;
+        row.style.display = matches ? '' : 'none';
+    });
+}
+
+// 新規行の既定チェック状態は現在モードに従う (勉強モードで足した動画は勉強用)。
+// 復元時は呼び出し側が明示的に study を渡すため、保存値が優先される。
+function addYouTubeUrlInput(initialValue = '', study = (currentYouTubeMode() === 'study')) {
     if (!youtubeListContainer) return;
     const row = document.createElement('div');
     row.className = 'yt-url-row mb-2';
@@ -189,6 +215,8 @@ function addYouTubeUrlInput(initialValue = '', study = false) {
     studyCheck.addEventListener('change', () => {
         saveAudioSourceSettings();
         scheduleUrlRefresh();
+        // 区分が変わると現在モードの一覧から外れる場合があるので再フィルタ
+        applyYouTubeModeFilter();
     });
 
     // 入力値からサムネ表示・警告表示を更新し、有効な videoId なら true を返す
@@ -218,6 +246,8 @@ function addYouTubeUrlInput(initialValue = '', study = false) {
         if (isValid && row === youtubeListContainer.lastElementChild) {
             addYouTubeUrlInput('');
         }
+        // URL の入力/消去で空行判定が変わるため表示を更新
+        applyYouTubeModeFilter();
     });
     removeBtn.addEventListener('click', () => {
         row.remove();
@@ -256,6 +286,8 @@ function addYouTubeUrlInput(initialValue = '', study = false) {
     });
 
     youtubeListContainer.appendChild(row);
+    // 追加直後の行も現在モードに合わせて表示/非表示を整える
+    applyYouTubeModeFilter();
 }
 
 // 末尾に空の入力欄が無ければ追加して、常に「末尾は空欄」の状態を保つ
@@ -407,6 +439,8 @@ if (voicyUrlInput) voicyUrlInput.addEventListener('input', () => {
 // 対象キューへ即座に差し替える (refreshActiveSourceIfPlaying 経由)。
 document.querySelectorAll('input[name="yt-mode"]').forEach((radio) => {
     radio.addEventListener('change', () => {
+        // 一覧をモードで絞り込み直してから保存・再生反映
+        applyYouTubeModeFilter();
         saveAudioSourceSettings();
         scheduleUrlRefresh();
     });
