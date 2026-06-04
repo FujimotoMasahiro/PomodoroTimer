@@ -21,8 +21,18 @@
         @media (min-width: 992px) {
             .settings-col { flex: 0 0 380px; width: 380px; }
         }
-        /* YouTube 動画は列幅いっぱい・16:9。高さは画面に収まる範囲で最大化 */
-        #youtubeContainer { width: 100%; aspect-ratio: 16 / 9; max-height: 78vh; }
+        /* タイマーは sticky でヘッダーのように上部へ貼り付け、動画までスクロール
+           しても常に見えるようにする。動画 iframe より前面に出すため z-index を上げる */
+        .timer-card {
+            position: sticky;
+            top: 0;
+            z-index: 1020;
+            box-shadow: 0 .25rem .6rem rgba(0, 0, 0, .12);
+        }
+
+        /* YouTube 動画は列幅いっぱい・16:9。高さは画面に収まる範囲で最大化。
+           sticky タイマーの高さぶんを引いて、動画全体が画面に収まりやすくする */
+        #youtubeContainer { width: 100%; aspect-ratio: 16 / 9; max-height: 70vh; }
         #youtubeContainer iframe {
             width: 100% !important;
             height: 100% !important;
@@ -48,7 +58,7 @@
         <div class="d-flex flex-column flex-lg-row gap-3 align-items-stretch align-items-lg-start">
             <!-- Timer Section -->
             <div class="main-col flex-grow-1">
-                <div class="card mb-3">
+                <div class="card mb-3 timer-card">
                     <div class="card-body">
                         <!-- 数字の横にステータス・回数・操作ボタンを並べて縦幅を節約 -->
                         <div class="d-flex flex-wrap align-items-center justify-content-center justify-content-md-evenly gap-4">
