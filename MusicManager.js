@@ -395,7 +395,9 @@ export class YouTubeManager {
             this.container.innerHTML = '<div id="youtube-iframe-target"></div>';
             const startSeconds = this.getSavedSeconds(targetVideoId);
             this.player = new YT.Player('youtube-iframe-target', {
-                height: '400',
+                // 実寸はコンテナ (#youtubeContainer の 16:9) を CSS で埋める。
+                // ここは 100% を渡してレスポンシブに最大化する。
+                height: '100%',
                 width: '100%',
                 videoId: targetVideoId,
                 playerVars: { rel: 0, modestbranding: 1, playsinline: 1, start: startSeconds },

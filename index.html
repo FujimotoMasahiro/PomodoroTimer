@@ -12,6 +12,23 @@
     <style>
         .yt-url-row.dragging { opacity: 0.4; }
         .yt-url-row .drag-handle { font-weight: bold; }
+
+        /* 横幅を有効活用しつつ、超ワイドでは広がりすぎないよう上限だけ設ける */
+        .app-shell { max-width: 1800px; }
+        /* flex 子要素が内容で押し広げられて溢れないように縮小を許可 */
+        .main-col { min-width: 0; }
+        /* 設定サイドバーは従来幅 (約 col-md-4 相当) を維持。動画側に余白を回す */
+        @media (min-width: 992px) {
+            .settings-col { flex: 0 0 380px; width: 380px; }
+        }
+        /* YouTube 動画は列幅いっぱい・16:9。高さは画面に収まる範囲で最大化 */
+        #youtubeContainer { width: 100%; aspect-ratio: 16 / 9; max-height: 78vh; }
+        #youtubeContainer iframe {
+            width: 100% !important;
+            height: 100% !important;
+            border: 0;
+            display: block;
+        }
     </style>
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-1RJ8SFSVDC"></script>
@@ -25,32 +42,42 @@
 </head>
 
 <body>
-    <div class="container mt-5">
-        <div class="row">
-            <h1 class="h2 text-sm-center mb-3">ポモドーロタイマー - 無料オンラインツール</h1>
-        </div>
-        <div class="row">
+    <div class="container-fluid app-shell mt-4 px-3 px-lg-4">
+        <h1 class="h2 text-center mb-3">ポモドーロタイマー - 無料オンラインツール</h1>
+
+        <div class="d-flex flex-column flex-lg-row gap-3 align-items-stretch align-items-lg-start">
             <!-- Timer Section -->
-            <div class="col-md-8">
-                <div class="card">
-                    <div class="card-body text-center">
-                        <p id="timer" class="display-4">25:00</p>
-                        <p class="h5">ポモドーロ数：<span id="cycles">0</span></p>
-                        <p id="status" class="h5">待機中</p>
-                        <button id="start-btn" class="btn btn-primary btn-lg"
-                            style="display:inline-block;">スタート</button>
-                        <button id="pause-btn" class="btn btn-secondary btn-lg" style="display:none;">一時停止</button>
-                        <button id="restart-btn" class="btn btn-secondary btn-lg" style="display:none;">再開</button>
-                        <button id="skip-btn" class="btn btn-secondary btn-lg" style="display:none;">スキップ</button>
-                        <button id="reset-btn" class="btn btn-danger btn-lg" style="display:none;">リセット</button>
+            <div class="main-col flex-grow-1">
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <!-- 数字の横にステータス・回数・操作ボタンを並べて縦幅を節約 -->
+                        <div class="d-flex flex-wrap align-items-center justify-content-center justify-content-md-evenly gap-4">
+                            <p id="timer" class="display-1 fw-bold lh-1 mb-0">25:00</p>
+                            <div class="text-center">
+                                <p id="status" class="h4 mb-1">待機中</p>
+                                <p class="text-muted mb-3">ポモドーロ数：<span id="cycles">0</span></p>
+                                <div class="d-flex flex-wrap gap-2 justify-content-center">
+                                    <button id="start-btn" class="btn btn-primary btn-lg"
+                                        style="display:inline-block;">スタート</button>
+                                    <button id="pause-btn" class="btn btn-secondary btn-lg"
+                                        style="display:none;">一時停止</button>
+                                    <button id="restart-btn" class="btn btn-secondary btn-lg"
+                                        style="display:none;">再開</button>
+                                    <button id="skip-btn" class="btn btn-secondary btn-lg"
+                                        style="display:none;">スキップ</button>
+                                    <button id="reset-btn" class="btn btn-danger btn-lg"
+                                        style="display:none;">リセット</button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                <p class="text-danger mt-3 mb-2 small">※BGMの音量を0にするとブラウザの仕様でタイマーが止まってしまいます。音量を完全に0にせずに使用してください。</p>
+                <p class="text-danger mt-2 mb-2 small">※BGMの音量を0にするとブラウザの仕様でタイマーが止まってしまいます。音量を完全に0にせずに使用してください。</p>
 
                 <!-- 現在の音源 (アクティブなものだけ表示) -->
                 <div class="card mb-3">
                     <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
                             <h5 class="card-title mb-0">現在の音源: <span id="active-source-label" class="text-primary">作業中BGM</span></h5>
                             <span id="active-phase-badge" class="badge bg-secondary">停止中</span>
                         </div>
@@ -85,7 +112,7 @@
             </div>
 
             <!-- Sidebar Section -->
-            <div class="col-md-4">
+            <div class="settings-col">
                 <div class="card bg-secondary-subtle">
                     <div class="card-body">
                         <h5 class="card-title">設定</h5>
