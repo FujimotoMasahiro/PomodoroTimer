@@ -1031,5 +1031,187 @@ window.addEventListener('load', () => {
     modal.show();
 });
 
+// ----------------------------------------------------------------------------
+// Google カレンダー埋め込み
+// ----------------------------------------------------------------------------
+// 設定欄に貼られた「埋め込みコード(iframe)」または URL から src を取り出し、
+// calendar.google.com の埋め込み URL のときだけ本文に iframe を生成する。
+// 値は localStorage に永続化する。非公開カレンダーは閲覧者が当該 Google
+// アカウントでログイン中のときだけ表示される (= 本人にしか見えない)。
+const gcalUrlInput = document.getElementById('gcal-url');
+const gcalUrlWarning = document.getElementById('gcal-url-warning');
+const gcalContainer = document.getElementById('gcal-container');
+const GCAL_SETTINGS_KEY = 'pomodoro_gcal_embed_url';
+
+// 貼り付け値から有効な埋め込み src を取り出す。
+// ・<iframe ... src="..."> ならその src を採用
+// ・URL 直書きならそのまま採用
+// calendar.google.com/calendar/embed の https URL 以外は null を返す。
+function extractCalendarSrc(raw) {
+    const text = (raw || '').trim();
+    if (!text) return null;
+    let url = text;
+    const m = text.match(/src\s*=\s*["']([^"']+)["']/i);
+    if (m) url = m[1];
+    url = url.replace(/&amp;/g, '&'); // 埋め込みコードの HTML エンティティを戻す
+    try {
+        const u = new URL(url);
+        if (u.protocol !== 'https:') return null;
+        if (u.hostname !== 'calendar.google.com') return null;
+        if (!u.pathname.startsWith('/calendar/embed')) return null;
+        return u.href;
+    } catch (_) {
+        return null;
+    }
+}
+
+function updateCalendar(raw) {
+    const src = extractCalendarSrc(raw);
+    const hasInput = !!(raw || '').trim();
+    // 入力はあるが解析できないときだけ設定欄に警告を出す
+    if (gcalUrlWarning) gcalUrlWarning.style.display = (hasInput && !src) ? '' : 'none';
+    if (!gcalContainer) return;
+    gcalContainer.innerHTML = '';
+    if (src) {
+        const iframe = document.createElement('iframe');
+        iframe.src = src;
+        iframe.title = 'Googleカレンダー';
+        iframe.loading = 'lazy';
+        iframe.setAttribute('frameborder', '0');
+        iframe.setAttribute('scrolling', 'no');
+        iframe.style.border = '0';
+        iframe.style.width = '100%';
+        iframe.style.height = '600px';
+        gcalContainer.appendChild(iframe);
+        return;
+    }
+    const p = document.createElement('p');
+    p.id = 'gcal-placeholder';
+    p.className = 'text-muted py-5 text-center mb-0';
+    p.textContent = hasInput
+        ? '埋め込み URL を解析できませんでした。設定欄の説明をご確認ください。'
+        : '設定の「Googleカレンダー」欄に埋め込み URL を貼ると、ここに予定が表示されます。';
+    gcalContainer.appendChild(p);
+}
+
+function loadCalendarSettings() {
+    let saved = '';
+    try { saved = localStorage.getItem(GCAL_SETTINGS_KEY) || ''; } catch (_) { /* localStorage 不可は既定値 */ }
+    if (gcalUrlInput) gcalUrlInput.value = saved;
+    updateCalendar(saved);
+}
+
+if (gcalUrlInput) {
+    gcalUrlInput.addEventListener('input', () => {
+        const raw = gcalUrlInput.value;
+        try { localStorage.setItem(GCAL_SETTINGS_KEY, raw); } catch (_) { /* localStorage 不可は無視 */ }
+        updateCalendar(raw);
+    });
+}
+loadCalendarSettings();
+
+// ----------------------------------------------------------------------------
+// 今日のタスク (簡易チェックリスト)
+// ----------------------------------------------------------------------------
+// localStorage に { id, text, done }[] を保持し、完了数/総数と進捗バーを更新する。
+// カレンダー(予定)と並べて「予定 + 進捗」を 1 画面で確認できるようにする。
+const taskAddForm = document.getElementById('task-add-form');
+const taskInput = document.getElementById('task-input');
+const taskListEl = document.getElementById('task-list');
+const taskEmptyEl = document.getElementById('task-empty');
+const taskProgressLabel = document.getElementById('task-progress-label');
+const taskProgressBar = document.getElementById('task-progress-bar');
+const TASKS_KEY = 'pomodoro_tasks';
+
+let tasks = [];
+
+function genTaskId() {
+    return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+function loadTasks() {
+    try {
+        const raw = localStorage.getItem(TASKS_KEY);
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+                tasks = parsed
+                    .filter((t) => t && typeof t.text === 'string')
+                    .map((t) => ({ id: t.id || genTaskId(), text: t.text, done: !!t.done }));
+            }
+        }
+    } catch (_) { /* localStorage 不可・JSON 不正は空リストで続行 */ }
+}
+
+function saveTasks() {
+    try { localStorage.setItem(TASKS_KEY, JSON.stringify(tasks)); } catch (_) { /* localStorage 不可は無視 */ }
+}
+
+function updateTaskProgress() {
+    const total = tasks.length;
+    const done = tasks.filter((t) => t.done).length;
+    if (taskEmptyEl) taskEmptyEl.style.display = total === 0 ? '' : 'none';
+    if (taskProgressLabel) taskProgressLabel.textContent = `${done} / ${total}`;
+    if (taskProgressBar) {
+        const pct = total === 0 ? 0 : Math.round((done / total) * 100);
+        taskProgressBar.style.width = pct + '%';
+        taskProgressBar.setAttribute('aria-valuenow', String(pct));
+    }
+}
+
+function renderTasks() {
+    if (!taskListEl) return;
+    taskListEl.innerHTML = '';
+    tasks.forEach((task) => {
+        const li = document.createElement('li');
+        li.className = 'list-group-item d-flex align-items-center gap-2 px-0';
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'form-check-input mt-0 flex-shrink-0';
+        cb.checked = task.done;
+        cb.setAttribute('aria-label', '完了');
+        cb.addEventListener('change', () => {
+            task.done = cb.checked;
+            saveTasks();
+            renderTasks();
+        });
+
+        const span = document.createElement('span');
+        span.className = 'flex-grow-1' + (task.done ? ' text-decoration-line-through text-muted' : '');
+        span.textContent = task.text; // textContent で XSS を防ぐ
+
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'btn btn-sm btn-outline-danger flex-shrink-0';
+        del.setAttribute('aria-label', '削除');
+        del.textContent = '×';
+        del.addEventListener('click', () => {
+            tasks = tasks.filter((t) => t.id !== task.id);
+            saveTasks();
+            renderTasks();
+        });
+
+        li.append(cb, span, del);
+        taskListEl.appendChild(li);
+    });
+    updateTaskProgress();
+}
+
+if (taskAddForm) {
+    taskAddForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const text = (taskInput.value || '').trim();
+        if (!text) return;
+        tasks.push({ id: genTaskId(), text, done: false });
+        taskInput.value = '';
+        saveTasks();
+        renderTasks();
+    });
+}
+
+loadTasks();
+renderTasks();
+
 main();
 updateActiveSourceDisplay();

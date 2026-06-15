@@ -170,6 +170,24 @@
                                 URL を入力すると新しい入力欄が自動で追加されます。
                             </div>
                         </div>
+
+                        <hr>
+                        <h6 class="mt-2">Googleカレンダー</h6>
+                        <div class="mb-3">
+                            <label for="gcal-url" class="form-label">カレンダー埋め込み URL</label>
+                            <input type="text" id="gcal-url" class="form-control"
+                                placeholder="https://calendar.google.com/calendar/embed?src=...">
+                            <div class="form-text">
+                                Google カレンダー設定 →「カレンダーの統合」→「埋め込みコード」の URL
+                                （または iframe コード全体）を貼り付けると、本文に予定が表示されます。
+                                自分の Google アカウントでログイン中のみ表示されます。
+                            </div>
+                            <div class="form-text text-danger" id="gcal-url-warning" style="display:none;">
+                                埋め込み URL を解析できませんでした。calendar.google.com の
+                                「埋め込みコード」を貼り付けてください。
+                            </div>
+                        </div>
+
                         <hr>
 
                         <p class="text-info">以下は今後バージョンアップにて使用可能になる予定です。</p>
@@ -208,6 +226,48 @@
                             </div>
                             <button type="submit" class="btn btn-success mt-3" disabled>設定を保存</button>
                         </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 予定 & タスク 一元管理エリア (本文の最下部・横幅いっぱい) -->
+        <div class="row g-3 mt-1">
+            <!-- 今日のタスク (簡易チェックリスト) -->
+            <div class="col-12 col-lg-5">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h5 class="card-title mb-0">今日のタスク</h5>
+                            <span id="task-progress-label" class="badge bg-secondary">0 / 0</span>
+                        </div>
+                        <div class="progress mb-3" style="height: 6px;">
+                            <div id="task-progress-bar" class="progress-bar bg-success" role="progressbar"
+                                style="width: 0%;" aria-label="タスク進捗"></div>
+                        </div>
+                        <form id="task-add-form" class="input-group input-group-sm mb-2">
+                            <input type="text" id="task-input" class="form-control"
+                                placeholder="タスクを入力して Enter / 追加" maxlength="200" aria-label="新しいタスク">
+                            <button type="submit" class="btn btn-primary">追加</button>
+                        </form>
+                        <ul id="task-list" class="list-group list-group-flush"></ul>
+                        <p id="task-empty" class="text-muted small mb-0 py-2 text-center">
+                            タスクはまだありません。上の欄から追加してください。
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <!-- 今日の予定 (Googleカレンダー埋め込み) -->
+            <div class="col-12 col-lg-7">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title">今日の予定（Googleカレンダー）</h5>
+                        <div id="gcal-container">
+                            <p id="gcal-placeholder" class="text-muted py-5 text-center mb-0">
+                                右側（スマホでは下）の設定「Googleカレンダー」欄に埋め込み URL を貼ると、
+                                ここに予定が表示されます。
+                            </p>
+                        </div>
                     </div>
                 </div>
             </div>
