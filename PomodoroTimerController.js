@@ -1032,87 +1032,227 @@ window.addEventListener('load', () => {
 });
 
 // ----------------------------------------------------------------------------
-// Google カレンダー埋め込み
+// Google カレンダー連携 (Calendar API 読み取り専用 + ローカル消化チェック)
 // ----------------------------------------------------------------------------
-// 設定欄に貼られた「埋め込みコード(iframe)」または URL から src を取り出し、
-// calendar.google.com の埋め込み URL のときだけ本文に iframe を生成する。
-// 値は localStorage に永続化する。非公開カレンダーは閲覧者が当該 Google
-// アカウントでログイン中のときだけ表示される (= 本人にしか見えない)。
-const gcalUrlInput = document.getElementById('gcal-url');
-const gcalUrlWarning = document.getElementById('gcal-url-warning');
-const gcalContainer = document.getElementById('gcal-container');
-const GCAL_SETTINGS_KEY = 'pomodoro_gcal_embed_url';
+// 設定欄の OAuth クライアント ID を localStorage に保存し、Google Identity
+// Services でアクセストークンを取得 → 今日の予定を取得してチェックリスト表示する。
+// 「消化(チェック)」状態は予定 ID ごとに localStorage に保存する (= Google 側は
+// 一切変更しない読み取り専用)。アクセストークンはメモリ上のみで永続化しない。
+const GCAL_CLIENT_ID_KEY = 'pomodoro_gcal_client_id';
+const GCAL_DONE_KEY = 'pomodoro_gcal_done_ids';
+const GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
 
-// 貼り付け値から有効な埋め込み src を取り出す。
-// ・<iframe ... src="..."> ならその src を採用
-// ・URL 直書きならそのまま採用
-// calendar.google.com/calendar/embed の https URL 以外は null を返す。
-function extractCalendarSrc(raw) {
-    const text = (raw || '').trim();
-    if (!text) return null;
-    let url = text;
-    const m = text.match(/src\s*=\s*["']([^"']+)["']/i);
-    if (m) url = m[1];
-    url = url.replace(/&amp;/g, '&'); // 埋め込みコードの HTML エンティティを戻す
-    try {
-        const u = new URL(url);
-        if (u.protocol !== 'https:') return null;
-        if (u.hostname !== 'calendar.google.com') return null;
-        if (!u.pathname.startsWith('/calendar/embed')) return null;
-        // 「週表示」を既定にする。mode 未指定なら WEEK を補う (URL に明示があれば尊重)
-        if (!u.searchParams.has('mode')) u.searchParams.set('mode', 'WEEK');
-        return u.href;
-    } catch (_) {
-        return null;
-    }
+const gcalClientIdInput = document.getElementById('gcal-client-id');
+const gcalConnectBtn = document.getElementById('gcal-connect-btn');
+const gcalRefreshBtn = document.getElementById('gcal-refresh-btn');
+const gcalEventList = document.getElementById('gcal-event-list');
+const gcalStatus = document.getElementById('gcal-status');
+const gcalProgress = document.getElementById('gcal-progress');
+const gcalProgressBar = document.getElementById('gcal-progress-bar');
+const gcalProgressLabel = document.getElementById('gcal-progress-label');
+
+let gcalTokenClient = null;
+let gcalAccessToken = null;        // メモリのみ (永続化しない)
+let gcalEvents = [];               // 今日の予定 [{ id, title, allDay, start }]
+
+function getGcalClientId() {
+    try { return (localStorage.getItem(GCAL_CLIENT_ID_KEY) || '').trim(); } catch (_) { return ''; }
 }
 
-function updateCalendar(raw) {
-    const src = extractCalendarSrc(raw);
-    const hasInput = !!(raw || '').trim();
-    // 入力はあるが解析できないときだけ設定欄に警告を出す
-    if (gcalUrlWarning) gcalUrlWarning.style.display = (hasInput && !src) ? '' : 'none';
-    if (!gcalContainer) return;
-    gcalContainer.innerHTML = '';
-    if (src) {
-        const iframe = document.createElement('iframe');
-        iframe.src = src;
-        iframe.title = 'Googleカレンダー';
-        iframe.loading = 'lazy';
-        iframe.setAttribute('frameborder', '0');
-        iframe.setAttribute('scrolling', 'no');
-        iframe.style.border = '0';
-        iframe.style.width = '100%';
-        iframe.style.height = '600px';
-        gcalContainer.appendChild(iframe);
+function loadGcalDoneSet() {
+    try {
+        const raw = localStorage.getItem(GCAL_DONE_KEY);
+        const arr = raw ? JSON.parse(raw) : [];
+        return new Set(Array.isArray(arr) ? arr : []);
+    } catch (_) { return new Set(); }
+}
+function saveGcalDoneSet(set) {
+    try { localStorage.setItem(GCAL_DONE_KEY, JSON.stringify([...set])); } catch (_) { /* 無視 */ }
+}
+
+function setGcalStatus(msg) {
+    if (!gcalStatus) return;
+    gcalStatus.textContent = msg || '';
+    gcalStatus.style.display = msg ? '' : 'none';
+}
+
+// クライアント ID の有無で接続ボタンの活性を切り替える
+function refreshGcalButtons() {
+    if (gcalConnectBtn) gcalConnectBtn.disabled = !getGcalClientId();
+}
+
+// 今日 (ローカルタイムゾーン) の 00:00〜翌 00:00 を RFC3339 で返す
+function todayRange() {
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    const end = new Date(start); end.setDate(end.getDate() + 1);
+    return { timeMin: start.toISOString(), timeMax: end.toISOString() };
+}
+
+// Google Identity Services のトークンクライアントを (再)生成する。
+// GIS 未ロード / クライアント ID 未設定なら null。
+function ensureGcalTokenClient() {
+    const clientId = getGcalClientId();
+    if (!clientId) return null;
+    if (!(window.google && google.accounts && google.accounts.oauth2)) return null;
+    if (!gcalTokenClient || gcalTokenClient.__clientId !== clientId) {
+        gcalTokenClient = google.accounts.oauth2.initTokenClient({
+            client_id: clientId,
+            scope: GCAL_SCOPE,
+            callback: (resp) => {
+                if (resp && resp.access_token) {
+                    gcalAccessToken = resp.access_token;
+                    fetchTodayEvents();
+                } else {
+                    setGcalStatus('接続がキャンセルされました。');
+                }
+            },
+        });
+        gcalTokenClient.__clientId = clientId;
+    }
+    return gcalTokenClient;
+}
+
+function connectGcal() {
+    const tc = ensureGcalTokenClient();
+    if (!tc) {
+        setGcalStatus('Google ライブラリの読み込み、またはクライアント ID をご確認ください。');
         return;
     }
-    const p = document.createElement('p');
-    p.id = 'gcal-placeholder';
-    p.className = 'text-muted py-5 text-center mb-0';
-    // 空入力時の文言は index.html の #gcal-placeholder 既定文と揃える
-    // (起動時 updateCalendar('') が HTML を再生成で上書きするため、ここが実表示になる)
-    p.textContent = hasInput
-        ? '埋め込み URL を解析できませんでした。設定欄の説明をご確認ください。'
-        : '設定「Googleカレンダー」欄に埋め込み URL を貼ると、ここに今日の予定（週表示）が出ます。普段どおりのカレンダー画面で操作したいときは、右上の「通常のカレンダーを開く」から新しいタブで開けます。';
-    gcalContainer.appendChild(p);
+    setGcalStatus('Google に接続しています…');
+    // 初回のみ同意画面、以降は無言で再取得を試みる
+    tc.requestAccessToken({ prompt: gcalAccessToken ? '' : 'consent' });
 }
 
-function loadCalendarSettings() {
-    let saved = '';
-    try { saved = localStorage.getItem(GCAL_SETTINGS_KEY) || ''; } catch (_) { /* localStorage 不可は既定値 */ }
-    if (gcalUrlInput) gcalUrlInput.value = saved;
-    updateCalendar(saved);
+async function fetchTodayEvents() {
+    if (!gcalAccessToken) { connectGcal(); return; }
+    setGcalStatus('今日の予定を取得しています…');
+    const { timeMin, timeMax } = todayRange();
+    const url = 'https://www.googleapis.com/calendar/v3/calendars/primary/events'
+        + `?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`
+        + '&singleEvents=true&orderBy=startTime&maxResults=50';
+    try {
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${gcalAccessToken}` } });
+        if (res.status === 401) {        // トークン失効 → 取り直し
+            gcalAccessToken = null;
+            connectGcal();
+            return;
+        }
+        if (!res.ok) { setGcalStatus(`予定を取得できませんでした (HTTP ${res.status})。`); return; }
+        const data = await res.json();
+        gcalEvents = (data.items || []).map((ev) => ({
+            id: ev.id,
+            title: ev.summary || '(タイトルなし)',
+            allDay: !!(ev.start && ev.start.date && !ev.start.dateTime),
+            start: (ev.start && (ev.start.dateTime || ev.start.date)) || '',
+        }));
+        renderGcalEvents();
+    } catch (_) {
+        setGcalStatus('予定の取得中にエラーが発生しました。通信状況をご確認ください。');
+    }
 }
 
-if (gcalUrlInput) {
-    gcalUrlInput.addEventListener('input', () => {
-        const raw = gcalUrlInput.value;
-        try { localStorage.setItem(GCAL_SETTINGS_KEY, raw); } catch (_) { /* localStorage 不可は無視 */ }
-        updateCalendar(raw);
+function formatEventTime(ev) {
+    if (ev.allDay) return '終日';
+    const d = new Date(ev.start);
+    if (isNaN(d.getTime())) return '';
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+function updateGcalProgress() {
+    const total = gcalEvents.length;
+    const doneSet = loadGcalDoneSet();
+    const doneCount = gcalEvents.filter((e) => doneSet.has(e.id)).length;
+    if (gcalProgressLabel) {
+        gcalProgressLabel.textContent = `${doneCount} / ${total}`;
+        gcalProgressLabel.style.display = total ? '' : 'none';
+    }
+    if (gcalProgress) gcalProgress.style.display = total ? '' : 'none';
+    if (gcalProgressBar) {
+        const pct = total === 0 ? 0 : Math.round((doneCount / total) * 100);
+        gcalProgressBar.style.width = pct + '%';
+        gcalProgressBar.setAttribute('aria-valuenow', String(pct));
+    }
+}
+
+function renderGcalEvents() {
+    if (!gcalEventList) return;
+    gcalEventList.innerHTML = '';
+
+    // 取得済みの今日の予定に無い完了 ID は掃除して localStorage の肥大化を防ぐ
+    const doneSet = loadGcalDoneSet();
+    const todayIds = new Set(gcalEvents.map((e) => e.id));
+    let pruned = false;
+    for (const id of [...doneSet]) { if (!todayIds.has(id)) { doneSet.delete(id); pruned = true; } }
+    if (pruned) saveGcalDoneSet(doneSet);
+
+    // 接続済みになったらボタンを「更新」に切り替える
+    if (gcalConnectBtn) gcalConnectBtn.style.display = 'none';
+    if (gcalRefreshBtn) gcalRefreshBtn.style.display = '';
+
+    if (gcalEvents.length === 0) {
+        setGcalStatus('今日の予定はありません。');
+        updateGcalProgress();
+        return;
+    }
+    setGcalStatus('');
+
+    gcalEvents.forEach((ev) => {
+        const li = document.createElement('li');
+        li.className = 'list-group-item d-flex align-items-center gap-2 px-0';
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'form-check-input mt-0 flex-shrink-0';
+        cb.checked = doneSet.has(ev.id);
+        cb.setAttribute('aria-label', '消化済み');
+
+        const time = document.createElement('span');
+        time.className = 'text-muted flex-shrink-0 text-end';
+        time.style.minWidth = '3.4em';
+        time.textContent = formatEventTime(ev);
+
+        const title = document.createElement('span');
+        title.className = 'flex-grow-1';
+        title.textContent = ev.title; // textContent で XSS を防ぐ
+
+        function applyDoneStyle() {
+            title.classList.toggle('text-decoration-line-through', cb.checked);
+            title.classList.toggle('text-muted', cb.checked);
+        }
+        applyDoneStyle();
+
+        cb.addEventListener('change', () => {
+            const set = loadGcalDoneSet();
+            if (cb.checked) set.add(ev.id); else set.delete(ev.id);
+            saveGcalDoneSet(set);
+            applyDoneStyle();
+            updateGcalProgress();
+        });
+
+        li.append(cb, time, title);
+        gcalEventList.appendChild(li);
+    });
+    updateGcalProgress();
+}
+
+if (gcalClientIdInput) {
+    gcalClientIdInput.value = getGcalClientId();
+    gcalClientIdInput.addEventListener('input', () => {
+        try { localStorage.setItem(GCAL_CLIENT_ID_KEY, gcalClientIdInput.value.trim()); } catch (_) { /* 無視 */ }
+        refreshGcalButtons();
     });
 }
-loadCalendarSettings();
+if (gcalConnectBtn) gcalConnectBtn.addEventListener('click', connectGcal);
+if (gcalRefreshBtn) gcalRefreshBtn.addEventListener('click', fetchTodayEvents);
+refreshGcalButtons();
+
+// テスト用フック: 実 OAuth / 通信なしで描画・チェック永続化を検証できるようにする。
+// (本番動作には不要だが、外部依存をブロックする QA 環境で UI を検証するため)
+window.PomodoroTimer = window.PomodoroTimer || {};
+window.PomodoroTimer.__setGcalEvents = function (events) {
+    gcalEvents = Array.isArray(events) ? events : [];
+    renderGcalEvents();
+};
 
 main();
 updateActiveSourceDisplay();

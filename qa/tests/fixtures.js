@@ -10,6 +10,11 @@ const NOISE_HOSTS = [
   'img.youtube.com',
   'i.ytimg.com',
   'voicy.jp',
+  // Google カレンダー連携の OAuth ライブラリ / API（実通信は QA では不可）。
+  // 決定論化のためブロックし、描画は window.PomodoroTimer.__setGcalEvents フックで検証する。
+  'accounts.google.com/gsi/client',
+  'apis.google.com',
+  'www.googleapis.com',
 ];
 
 /**

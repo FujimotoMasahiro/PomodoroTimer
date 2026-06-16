@@ -172,19 +172,15 @@
                         </div>
 
                         <hr>
-                        <h6 class="mt-2">Googleカレンダー</h6>
+                        <h6 class="mt-2">Googleカレンダー連携</h6>
                         <div class="mb-3">
-                            <label for="gcal-url" class="form-label">カレンダー埋め込み URL</label>
-                            <input type="text" id="gcal-url" class="form-control"
-                                placeholder="https://calendar.google.com/calendar/embed?src=...">
+                            <label for="gcal-client-id" class="form-label">OAuth クライアント ID</label>
+                            <input type="text" id="gcal-client-id" class="form-control" autocomplete="off"
+                                placeholder="xxxxxxxx.apps.googleusercontent.com">
                             <div class="form-text">
-                                Google カレンダー設定 →「カレンダーの統合」→「埋め込みコード」の URL
-                                （または iframe コード全体）を貼り付けると、本文に予定が表示されます。
-                                自分の Google アカウントでログイン中のみ表示されます。
-                            </div>
-                            <div class="form-text text-danger" id="gcal-url-warning" style="display:none;">
-                                埋め込み URL を解析できませんでした。calendar.google.com の
-                                「埋め込みコード」を貼り付けてください。
+                                Google Cloud で発行した OAuth クライアント ID を貼り付けてください
+                                （読み取り専用・費用ゼロ）。本文の「今日の予定」で「Google と接続」を押すと、
+                                今日の予定をチェックリストで表示します。クライアント ID は公開情報のため保存しても安全です。
                             </div>
                         </div>
 
@@ -231,22 +227,32 @@
             </div>
         </div>
 
-        <!-- 今日の予定エリア (本文の最下部・横幅いっぱい) -->
+        <!-- 今日の予定エリア (Calendar API で取得しチェックで消化・本文最下部) -->
         <div class="row g-3 mt-1">
             <div class="col-12">
                 <div class="card">
                     <div class="card-body">
                         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-                            <h5 class="card-title mb-0">今日の予定（Googleカレンダー）</h5>
-                            <a href="https://calendar.google.com/calendar/u/0/r" target="_blank" rel="noopener"
-                                class="btn btn-sm btn-outline-primary" id="gcal-open-full">通常のカレンダーを開く ↗</a>
+                            <h5 class="card-title mb-0">今日の予定</h5>
+                            <div class="d-flex flex-wrap align-items-center gap-2">
+                                <span id="gcal-progress-label" class="badge bg-secondary" style="display:none;">0 / 0</span>
+                                <button type="button" id="gcal-connect-btn" class="btn btn-sm btn-primary"
+                                    disabled>Google と接続</button>
+                                <button type="button" id="gcal-refresh-btn" class="btn btn-sm btn-outline-secondary"
+                                    style="display:none;">更新</button>
+                                <a href="https://calendar.google.com/calendar/u/0/r" target="_blank" rel="noopener"
+                                    class="btn btn-sm btn-outline-primary" id="gcal-open-full">通常のカレンダーを開く ↗</a>
+                            </div>
                         </div>
-                        <div id="gcal-container">
-                            <p id="gcal-placeholder" class="text-muted py-5 text-center mb-0">
-                                設定「Googleカレンダー」欄に埋め込み URL を貼ると、ここに今日の予定（週表示）が出ます。<br>
-                                普段どおりのカレンダー画面で操作したいときは、右上の「通常のカレンダーを開く」から新しいタブで開けます。
-                            </p>
+                        <div class="progress mb-3" id="gcal-progress" style="height: 6px; display:none;">
+                            <div id="gcal-progress-bar" class="progress-bar bg-success" role="progressbar"
+                                style="width: 0%;" aria-label="予定の消化"></div>
                         </div>
+                        <ul id="gcal-event-list" class="list-group list-group-flush"></ul>
+                        <p id="gcal-status" class="text-muted small mb-0 py-3 text-center">
+                            設定「Googleカレンダー連携」に OAuth クライアント ID を入れて「Google と接続」を押すと、
+                            今日の予定がチェックリストで表示されます。チェックすると消化済みとして記録されます（Google 側は変更しません）。
+                        </p>
                     </div>
                 </div>
             </div>
@@ -281,6 +287,8 @@
 
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Google Identity Services (Googleカレンダー連携の OAuth トークン取得用) -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <!-- JavaScript Logic -->
     <script type="module" src="PomodoroTimerController.js"></script>
     <!-- <script type="module" src="MusicManager.js"></script> -->
