@@ -1059,6 +1059,8 @@ function extractCalendarSrc(raw) {
         if (u.protocol !== 'https:') return null;
         if (u.hostname !== 'calendar.google.com') return null;
         if (!u.pathname.startsWith('/calendar/embed')) return null;
+        // 「週表示」を既定にする。mode 未指定なら WEEK を補う (URL に明示があれば尊重)
+        if (!u.searchParams.has('mode')) u.searchParams.set('mode', 'WEEK');
         return u.href;
     } catch (_) {
         return null;
@@ -1088,9 +1090,11 @@ function updateCalendar(raw) {
     const p = document.createElement('p');
     p.id = 'gcal-placeholder';
     p.className = 'text-muted py-5 text-center mb-0';
+    // 空入力時の文言は index.html の #gcal-placeholder 既定文と揃える
+    // (起動時 updateCalendar('') が HTML を再生成で上書きするため、ここが実表示になる)
     p.textContent = hasInput
         ? '埋め込み URL を解析できませんでした。設定欄の説明をご確認ください。'
-        : '設定の「Googleカレンダー」欄に埋め込み URL を貼ると、ここに予定が表示されます。';
+        : '設定「Googleカレンダー」欄に埋め込み URL を貼ると、ここに今日の予定（週表示）が出ます。普段どおりのカレンダー画面で操作したいときは、右上の「通常のカレンダーを開く」から新しいタブで開けます。';
     gcalContainer.appendChild(p);
 }
 
@@ -1109,109 +1113,6 @@ if (gcalUrlInput) {
     });
 }
 loadCalendarSettings();
-
-// ----------------------------------------------------------------------------
-// 今日のタスク (簡易チェックリスト)
-// ----------------------------------------------------------------------------
-// localStorage に { id, text, done }[] を保持し、完了数/総数と進捗バーを更新する。
-// カレンダー(予定)と並べて「予定 + 進捗」を 1 画面で確認できるようにする。
-const taskAddForm = document.getElementById('task-add-form');
-const taskInput = document.getElementById('task-input');
-const taskListEl = document.getElementById('task-list');
-const taskEmptyEl = document.getElementById('task-empty');
-const taskProgressLabel = document.getElementById('task-progress-label');
-const taskProgressBar = document.getElementById('task-progress-bar');
-const TASKS_KEY = 'pomodoro_tasks';
-
-let tasks = [];
-
-function genTaskId() {
-    return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-}
-
-function loadTasks() {
-    try {
-        const raw = localStorage.getItem(TASKS_KEY);
-        if (raw) {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) {
-                tasks = parsed
-                    .filter((t) => t && typeof t.text === 'string')
-                    .map((t) => ({ id: t.id || genTaskId(), text: t.text, done: !!t.done }));
-            }
-        }
-    } catch (_) { /* localStorage 不可・JSON 不正は空リストで続行 */ }
-}
-
-function saveTasks() {
-    try { localStorage.setItem(TASKS_KEY, JSON.stringify(tasks)); } catch (_) { /* localStorage 不可は無視 */ }
-}
-
-function updateTaskProgress() {
-    const total = tasks.length;
-    const done = tasks.filter((t) => t.done).length;
-    if (taskEmptyEl) taskEmptyEl.style.display = total === 0 ? '' : 'none';
-    if (taskProgressLabel) taskProgressLabel.textContent = `${done} / ${total}`;
-    if (taskProgressBar) {
-        const pct = total === 0 ? 0 : Math.round((done / total) * 100);
-        taskProgressBar.style.width = pct + '%';
-        taskProgressBar.setAttribute('aria-valuenow', String(pct));
-    }
-}
-
-function renderTasks() {
-    if (!taskListEl) return;
-    taskListEl.innerHTML = '';
-    tasks.forEach((task) => {
-        const li = document.createElement('li');
-        li.className = 'list-group-item d-flex align-items-center gap-2 px-0';
-
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.className = 'form-check-input mt-0 flex-shrink-0';
-        cb.checked = task.done;
-        cb.setAttribute('aria-label', '完了');
-        cb.addEventListener('change', () => {
-            task.done = cb.checked;
-            saveTasks();
-            renderTasks();
-        });
-
-        const span = document.createElement('span');
-        span.className = 'flex-grow-1' + (task.done ? ' text-decoration-line-through text-muted' : '');
-        span.textContent = task.text; // textContent で XSS を防ぐ
-
-        const del = document.createElement('button');
-        del.type = 'button';
-        del.className = 'btn btn-sm btn-outline-danger flex-shrink-0';
-        del.setAttribute('aria-label', '削除');
-        del.textContent = '×';
-        del.addEventListener('click', () => {
-            tasks = tasks.filter((t) => t.id !== task.id);
-            saveTasks();
-            renderTasks();
-        });
-
-        li.append(cb, span, del);
-        taskListEl.appendChild(li);
-    });
-    updateTaskProgress();
-}
-
-if (taskAddForm) {
-    taskAddForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const text = (taskInput.value || '').trim();
-        if (!text) return;
-        tasks.push({ id: genTaskId(), text, done: false });
-        taskInput.value = '';
-        saveTasks();
-        renderTasks();
-    });
-}
-
-loadTasks();
-renderTasks();
 
 main();
 updateActiveSourceDisplay();

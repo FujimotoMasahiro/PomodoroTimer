@@ -231,41 +231,20 @@
             </div>
         </div>
 
-        <!-- 予定 & タスク 一元管理エリア (本文の最下部・横幅いっぱい) -->
+        <!-- 今日の予定エリア (本文の最下部・横幅いっぱい) -->
         <div class="row g-3 mt-1">
-            <!-- 今日のタスク (簡易チェックリスト) -->
-            <div class="col-12 col-lg-5">
-                <div class="card h-100">
+            <div class="col-12">
+                <div class="card">
                     <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <h5 class="card-title mb-0">今日のタスク</h5>
-                            <span id="task-progress-label" class="badge bg-secondary">0 / 0</span>
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                            <h5 class="card-title mb-0">今日の予定（Googleカレンダー）</h5>
+                            <a href="https://calendar.google.com/calendar/u/0/r" target="_blank" rel="noopener"
+                                class="btn btn-sm btn-outline-primary" id="gcal-open-full">通常のカレンダーを開く ↗</a>
                         </div>
-                        <div class="progress mb-3" style="height: 6px;">
-                            <div id="task-progress-bar" class="progress-bar bg-success" role="progressbar"
-                                style="width: 0%;" aria-label="タスク進捗"></div>
-                        </div>
-                        <form id="task-add-form" class="input-group input-group-sm mb-2">
-                            <input type="text" id="task-input" class="form-control"
-                                placeholder="タスクを入力して Enter / 追加" maxlength="200" aria-label="新しいタスク">
-                            <button type="submit" class="btn btn-primary">追加</button>
-                        </form>
-                        <ul id="task-list" class="list-group list-group-flush"></ul>
-                        <p id="task-empty" class="text-muted small mb-0 py-2 text-center">
-                            タスクはまだありません。上の欄から追加してください。
-                        </p>
-                    </div>
-                </div>
-            </div>
-            <!-- 今日の予定 (Googleカレンダー埋め込み) -->
-            <div class="col-12 col-lg-7">
-                <div class="card h-100">
-                    <div class="card-body">
-                        <h5 class="card-title">今日の予定（Googleカレンダー）</h5>
                         <div id="gcal-container">
                             <p id="gcal-placeholder" class="text-muted py-5 text-center mb-0">
-                                右側（スマホでは下）の設定「Googleカレンダー」欄に埋め込み URL を貼ると、
-                                ここに予定が表示されます。
+                                設定「Googleカレンダー」欄に埋め込み URL を貼ると、ここに今日の予定（週表示）が出ます。<br>
+                                普段どおりのカレンダー画面で操作したいときは、右上の「通常のカレンダーを開く」から新しいタブで開けます。
                             </p>
                         </div>
                     </div>
