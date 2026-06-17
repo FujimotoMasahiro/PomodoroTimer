@@ -227,10 +227,10 @@
             </div>
         </div>
 
-        <!-- 今日の予定 & ToDo エリア (Calendar / Tasks API・本文最下部) -->
+        <!-- 今日の予定エリア (Calendar API・チェックで予定をグレーアウト・本文最下部) -->
         <div class="row g-3 mt-1">
-            <div class="col-12 col-lg-6">
-                <div class="card h-100">
+            <div class="col-12">
+                <div class="card">
                     <div class="card-body">
                         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
                             <h5 class="card-title mb-0">今日の予定</h5>
@@ -251,31 +251,7 @@
                         <ul id="gcal-event-list" class="list-group list-group-flush"></ul>
                         <p id="gcal-status" class="text-muted small mb-0 py-3 text-center">
                             設定「Googleカレンダー連携」に OAuth クライアント ID を入れて「Google と接続」を押すと、
-                            今日の予定がチェックリストで表示されます。チェックすると消化済みとして記録されます（Google 側は変更しません）。
-                        </p>
-                    </div>
-                </div>
-            </div>
-            <div class="col-12 col-lg-6">
-                <div class="card h-100">
-                    <div class="card-body">
-                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-                            <h5 class="card-title mb-0">今日のToDo</h5>
-                            <span id="gtasks-progress-label" class="badge bg-secondary" style="display:none;">0 / 0</span>
-                        </div>
-                        <div class="progress mb-3" id="gtasks-progress" style="height: 6px; display:none;">
-                            <div id="gtasks-progress-bar" class="progress-bar bg-success" role="progressbar"
-                                style="width: 0%;" aria-label="ToDoの消化"></div>
-                        </div>
-                        <form id="gtasks-add-form" class="input-group input-group-sm mb-2" style="display:none;">
-                            <input type="text" id="gtasks-add-input" class="form-control" maxlength="500"
-                                placeholder="ToDo を入力して Enter（Google に同期）" aria-label="新しい ToDo">
-                            <button type="submit" class="btn btn-primary">追加</button>
-                        </form>
-                        <ul id="gtasks-list" class="list-group list-group-flush"></ul>
-                        <p id="gtasks-status" class="text-muted small mb-0 py-3 text-center">
-                            「Google と接続」すると、Google ToDo がここに表示されます。
-                            チェックすると Google 側でも完了になります（双方向同期）。
+                            今日の予定がチェックリストで表示されます。チェックするとカレンダー上の予定がグレーアウト（完了）になります。
                         </p>
                     </div>
                 </div>

@@ -1032,16 +1032,20 @@ window.addEventListener('load', () => {
 });
 
 // ----------------------------------------------------------------------------
-// Google カレンダー連携 (Calendar API 読み取り専用 + ローカル消化チェック)
+// Google カレンダー連携 (Calendar API・予定をタスクとして扱い、チェックで
+// その予定の色を「グレー(グラファイト)」に書き換えて完了表現する)
 // ----------------------------------------------------------------------------
 // 設定欄の OAuth クライアント ID を localStorage に保存し、Google Identity
 // Services でアクセストークンを取得 → 今日の予定を取得してチェックリスト表示する。
-// 「消化(チェック)」状態は予定 ID ごとに localStorage に保存する (= Google 側は
-// 一切変更しない読み取り専用)。アクセストークンはメモリ上のみで永続化しない。
+// チェック(=完了)すると、その予定の colorId をグラファイト(グレー)に書き換えて
+// Google カレンダー側へ反映する (events.patch)。チェックを外すと元の色へ戻す。
+// 完了かどうかは「色がグレーか」で判定する (= ユーザーのグレーアウト運用に一致)。
+// アクセストークンはメモリ上のみで永続化しない。
 const GCAL_CLIENT_ID_KEY = 'pomodoro_gcal_client_id';
-const GCAL_DONE_KEY = 'pomodoro_gcal_done_ids';
-// 予定は読み取り専用、ToDo(Tasks) は読み書き (チェックで Google 側も完了させるため)
-const GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/tasks';
+// 予定の色を書き換えるため events の読み書きスコープが必要
+const GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+// 完了マークに使う色 = Google カレンダーの colorId '8' (Graphite / グレー)
+const GCAL_DONE_COLOR = '8';
 
 const gcalClientIdInput = document.getElementById('gcal-client-id');
 const gcalConnectBtn = document.getElementById('gcal-connect-btn');
@@ -1054,21 +1058,17 @@ const gcalProgressLabel = document.getElementById('gcal-progress-label');
 
 let gcalTokenClient = null;
 let gcalAccessToken = null;        // メモリのみ (永続化しない)
-let gcalEvents = [];               // 今日の予定 [{ id, title, allDay, start }]
+let gcalEvents = [];               // 今日の予定 [{ id, title, allDay, start, colorId }]
+// チェックを外したときに復元するため、グレーにする前の色を覚えておく (id -> colorId)
+const gcalOrigColor = new Map();
 
 function getGcalClientId() {
     try { return (localStorage.getItem(GCAL_CLIENT_ID_KEY) || '').trim(); } catch (_) { return ''; }
 }
 
-function loadGcalDoneSet() {
-    try {
-        const raw = localStorage.getItem(GCAL_DONE_KEY);
-        const arr = raw ? JSON.parse(raw) : [];
-        return new Set(Array.isArray(arr) ? arr : []);
-    } catch (_) { return new Set(); }
-}
-function saveGcalDoneSet(set) {
-    try { localStorage.setItem(GCAL_DONE_KEY, JSON.stringify([...set])); } catch (_) { /* 無視 */ }
+// 予定が「完了(グレーアウト済み)」かは色で判定する
+function isEventDone(ev) {
+    return !!ev && ev.colorId === GCAL_DONE_COLOR;
 }
 
 function setGcalStatus(msg) {
@@ -1103,7 +1103,6 @@ function ensureGcalTokenClient() {
                 if (resp && resp.access_token) {
                     gcalAccessToken = resp.access_token;
                     fetchTodayEvents();
-                    fetchGtasks();
                 } else {
                     setGcalStatus('接続がキャンセルされました。');
                 }
@@ -1146,6 +1145,7 @@ async function fetchTodayEvents() {
             title: ev.summary || '(タイトルなし)',
             allDay: !!(ev.start && ev.start.date && !ev.start.dateTime),
             start: (ev.start && (ev.start.dateTime || ev.start.date)) || '',
+            colorId: ev.colorId || '',
         }));
         renderGcalEvents();
     } catch (_) {
@@ -1162,8 +1162,7 @@ function formatEventTime(ev) {
 
 function updateGcalProgress() {
     const total = gcalEvents.length;
-    const doneSet = loadGcalDoneSet();
-    const doneCount = gcalEvents.filter((e) => doneSet.has(e.id)).length;
+    const doneCount = gcalEvents.filter(isEventDone).length;
     if (gcalProgressLabel) {
         gcalProgressLabel.textContent = `${doneCount} / ${total}`;
         gcalProgressLabel.style.display = total ? '' : 'none';
@@ -1176,16 +1175,38 @@ function updateGcalProgress() {
     }
 }
 
+// 予定の colorId を Google カレンダーへ書き換える。done=true でグレー、
+// false で元の色へ戻す (元が既定色なら colorId を空にして既定へ)。成功で true。
+async function patchEventColor(ev, done) {
+    if (!gcalAccessToken) return false;
+    const url = 'https://www.googleapis.com/calendar/v3/calendars/primary/events/'
+        + encodeURIComponent(ev.id);
+    let body;
+    if (done) {
+        body = { colorId: GCAL_DONE_COLOR };
+    } else {
+        const orig = gcalOrigColor.has(ev.id) ? gcalOrigColor.get(ev.id) : '';
+        // 元が既定色 (colorId なし) のときは null を送って既定色へ戻す
+        body = { colorId: orig || null };
+    }
+    try {
+        const res = await fetch(url, {
+            method: 'PATCH',
+            headers: { Authorization: `Bearer ${gcalAccessToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        if (res.status === 401) { gcalAccessToken = null; connectGcal(); return false; }
+        if (!res.ok) { setGcalStatus(`カレンダーへの反映に失敗しました (HTTP ${res.status})。`); return false; }
+        return true;
+    } catch (_) {
+        setGcalStatus('カレンダーへの反映中にエラーが発生しました。');
+        return false;
+    }
+}
+
 function renderGcalEvents() {
     if (!gcalEventList) return;
     gcalEventList.innerHTML = '';
-
-    // 取得済みの今日の予定に無い完了 ID は掃除して localStorage の肥大化を防ぐ
-    const doneSet = loadGcalDoneSet();
-    const todayIds = new Set(gcalEvents.map((e) => e.id));
-    let pruned = false;
-    for (const id of [...doneSet]) { if (!todayIds.has(id)) { doneSet.delete(id); pruned = true; } }
-    if (pruned) saveGcalDoneSet(doneSet);
 
     // 接続済みになったらボタンを「更新」に切り替える
     if (gcalConnectBtn) gcalConnectBtn.style.display = 'none';
@@ -1205,8 +1226,8 @@ function renderGcalEvents() {
         const cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.className = 'form-check-input mt-0 flex-shrink-0';
-        cb.checked = doneSet.has(ev.id);
-        cb.setAttribute('aria-label', '消化済み');
+        cb.checked = isEventDone(ev);
+        cb.setAttribute('aria-label', '完了 (カレンダーをグレーアウト)');
 
         const time = document.createElement('span');
         time.className = 'text-muted flex-shrink-0 text-end';
@@ -1218,17 +1239,30 @@ function renderGcalEvents() {
         title.textContent = ev.title; // textContent で XSS を防ぐ
 
         function applyDoneStyle() {
-            title.classList.toggle('text-decoration-line-through', cb.checked);
-            title.classList.toggle('text-muted', cb.checked);
+            const done = isEventDone(ev);
+            title.classList.toggle('text-decoration-line-through', done);
+            title.classList.toggle('text-muted', done);
         }
         applyDoneStyle();
 
-        cb.addEventListener('change', () => {
-            const set = loadGcalDoneSet();
-            if (cb.checked) set.add(ev.id); else set.delete(ev.id);
-            saveGcalDoneSet(set);
+        cb.addEventListener('change', async () => {
+            const want = cb.checked;
+            const prevColor = ev.colorId;
+            // グレーにする前の色を控える (復元用)。既に控えていれば上書きしない
+            if (want && !gcalOrigColor.has(ev.id)) gcalOrigColor.set(ev.id, prevColor || '');
+            // 楽観的に反映 → 失敗時はロールバック
+            ev.colorId = want ? GCAL_DONE_COLOR : (gcalOrigColor.get(ev.id) || '');
             applyDoneStyle();
             updateGcalProgress();
+            cb.disabled = true;
+            const ok = await patchEventColor(ev, want);
+            cb.disabled = false;
+            if (!ok) {
+                ev.colorId = prevColor;
+                cb.checked = isEventDone(ev);
+                applyDoneStyle();
+                updateGcalProgress();
+            }
         });
 
         li.append(cb, time, title);
@@ -1245,7 +1279,7 @@ if (gcalClientIdInput) {
     });
 }
 if (gcalConnectBtn) gcalConnectBtn.addEventListener('click', connectGcal);
-if (gcalRefreshBtn) gcalRefreshBtn.addEventListener('click', () => { fetchTodayEvents(); fetchGtasks(); });
+if (gcalRefreshBtn) gcalRefreshBtn.addEventListener('click', fetchTodayEvents);
 refreshGcalButtons();
 
 // テスト用フック: 実 OAuth / 通信なしで描画・チェック永続化を検証できるようにする。
@@ -1254,191 +1288,6 @@ window.PomodoroTimer = window.PomodoroTimer || {};
 window.PomodoroTimer.__setGcalEvents = function (events) {
     gcalEvents = Array.isArray(events) ? events : [];
     renderGcalEvents();
-};
-
-// ----------------------------------------------------------------------------
-// Google ToDo 連携 (Google Tasks API・読み書き / チェックで Google 側も完了)
-// ----------------------------------------------------------------------------
-// 既定タスクリスト(@default)の ToDo を取得し、チェックで status を切り替えて
-// Google へ同期する (tasks.patch)。新規追加 (tasks.insert) も可能。
-// 予定(events)と同じアクセストークン (connectGcal) を共用する。
-const gtasksList = document.getElementById('gtasks-list');
-const gtasksStatus = document.getElementById('gtasks-status');
-const gtasksProgress = document.getElementById('gtasks-progress');
-const gtasksProgressBar = document.getElementById('gtasks-progress-bar');
-const gtasksProgressLabel = document.getElementById('gtasks-progress-label');
-const gtasksAddForm = document.getElementById('gtasks-add-form');
-const gtasksAddInput = document.getElementById('gtasks-add-input');
-
-const GTASKS_BASE = 'https://tasks.googleapis.com/tasks/v1/lists/@default/tasks';
-
-let gtasks = []; // [{ id, title, status, due }]
-
-function setGtasksStatus(msg) {
-    if (!gtasksStatus) return;
-    gtasksStatus.textContent = msg || '';
-    gtasksStatus.style.display = msg ? '' : 'none';
-}
-
-function gtasksAuthHeaders(extra) {
-    return Object.assign({ Authorization: `Bearer ${gcalAccessToken}` }, extra || {});
-}
-
-async function fetchGtasks() {
-    if (!gcalAccessToken) return;
-    setGtasksStatus('Google ToDo を取得しています…');
-    // 未完了は常時、完了は「今日完了したもの」だけ取得して当日リストに保つ
-    const { timeMin } = todayRange();
-    const url = `${GTASKS_BASE}?showCompleted=true&completedMin=${encodeURIComponent(timeMin)}&maxResults=100`;
-    try {
-        const res = await fetch(url, { headers: gtasksAuthHeaders() });
-        if (res.status === 401) { gcalAccessToken = null; connectGcal(); return; }
-        if (!res.ok) { setGtasksStatus(`ToDo を取得できませんでした (HTTP ${res.status})。`); return; }
-        const data = await res.json();
-        gtasks = (data.items || []).map((t) => ({
-            id: t.id,
-            title: t.title || '(無題)',
-            status: t.status === 'completed' ? 'completed' : 'needsAction',
-            due: t.due || '',
-        }));
-        renderGtasks();
-    } catch (_) {
-        setGtasksStatus('ToDo の取得中にエラーが発生しました。通信状況をご確認ください。');
-    }
-}
-
-// status を Google へ反映。成功で true。
-async function patchGtaskStatus(task, completed) {
-    if (!gcalAccessToken) return false;
-    const url = `${GTASKS_BASE}/${encodeURIComponent(task.id)}`;
-    // 未完了へ戻すときは completed フィールドを明示的に消す
-    const body = completed ? { status: 'completed' } : { status: 'needsAction', completed: null };
-    try {
-        const res = await fetch(url, {
-            method: 'PATCH',
-            headers: gtasksAuthHeaders({ 'Content-Type': 'application/json' }),
-            body: JSON.stringify(body),
-        });
-        if (!res.ok) { setGtasksStatus(`同期に失敗しました (HTTP ${res.status})。`); return false; }
-        return true;
-    } catch (_) {
-        setGtasksStatus('同期中にエラーが発生しました。');
-        return false;
-    }
-}
-
-async function addGtask(title) {
-    if (!gcalAccessToken) return;
-    try {
-        const res = await fetch(GTASKS_BASE, {
-            method: 'POST',
-            headers: gtasksAuthHeaders({ 'Content-Type': 'application/json' }),
-            body: JSON.stringify({ title }),
-        });
-        if (!res.ok) { setGtasksStatus(`追加に失敗しました (HTTP ${res.status})。`); return; }
-        const created = await res.json();
-        gtasks.unshift({
-            id: created.id,
-            title: created.title || title,
-            status: 'needsAction',
-            due: created.due || '',
-        });
-        renderGtasks();
-    } catch (_) {
-        setGtasksStatus('追加中にエラーが発生しました。');
-    }
-}
-
-function updateGtasksProgress() {
-    const total = gtasks.length;
-    const done = gtasks.filter((t) => t.status === 'completed').length;
-    if (gtasksProgressLabel) {
-        gtasksProgressLabel.textContent = `${done} / ${total}`;
-        gtasksProgressLabel.style.display = total ? '' : 'none';
-    }
-    if (gtasksProgress) gtasksProgress.style.display = total ? '' : 'none';
-    if (gtasksProgressBar) {
-        const pct = total === 0 ? 0 : Math.round((done / total) * 100);
-        gtasksProgressBar.style.width = pct + '%';
-        gtasksProgressBar.setAttribute('aria-valuenow', String(pct));
-    }
-}
-
-function renderGtasks() {
-    if (!gtasksList) return;
-    gtasksList.innerHTML = '';
-
-    // 接続済みになったら接続ボタンを「更新」へ切替 (events 側と同じ・冪等)
-    if (gcalConnectBtn) gcalConnectBtn.style.display = 'none';
-    if (gcalRefreshBtn) gcalRefreshBtn.style.display = '';
-    if (gtasksAddForm) gtasksAddForm.style.display = '';
-
-    if (gtasks.length === 0) {
-        setGtasksStatus('今日の ToDo はありません。上の欄から追加できます。');
-        updateGtasksProgress();
-        return;
-    }
-    setGtasksStatus('');
-
-    gtasks.forEach((task) => {
-        const li = document.createElement('li');
-        li.className = 'list-group-item d-flex align-items-center gap-2 px-0';
-
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.className = 'form-check-input mt-0 flex-shrink-0';
-        cb.checked = task.status === 'completed';
-        cb.setAttribute('aria-label', '完了 (Googleに同期)');
-
-        const title = document.createElement('span');
-        title.className = 'flex-grow-1';
-        title.textContent = task.title; // textContent で XSS を防ぐ
-
-        function applyDoneStyle() {
-            const done = task.status === 'completed';
-            title.classList.toggle('text-decoration-line-through', done);
-            title.classList.toggle('text-muted', done);
-        }
-        applyDoneStyle();
-
-        cb.addEventListener('change', async () => {
-            const prev = task.status;
-            const want = cb.checked;
-            // 楽観的に反映 → 失敗時はロールバック
-            task.status = want ? 'completed' : 'needsAction';
-            applyDoneStyle();
-            updateGtasksProgress();
-            cb.disabled = true;
-            const ok = await patchGtaskStatus(task, want);
-            cb.disabled = false;
-            if (!ok) {
-                task.status = prev;
-                cb.checked = prev === 'completed';
-                applyDoneStyle();
-                updateGtasksProgress();
-            }
-        });
-
-        li.append(cb, title);
-        gtasksList.appendChild(li);
-    });
-    updateGtasksProgress();
-}
-
-if (gtasksAddForm) {
-    gtasksAddForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const v = (gtasksAddInput.value || '').trim();
-        if (!v) return;
-        gtasksAddInput.value = '';
-        addGtask(v);
-    });
-}
-
-// テスト用フック: 実 OAuth / 通信なしで ToDo 描画を検証できるようにする
-window.PomodoroTimer.__setGcalTasks = function (tasks) {
-    gtasks = Array.isArray(tasks) ? tasks : [];
-    renderGtasks();
 };
 
 main();
