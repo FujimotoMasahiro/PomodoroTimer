@@ -1046,6 +1046,8 @@ const GCAL_CLIENT_ID_KEY = 'pomodoro_gcal_client_id';
 const GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
 // 完了マークに使う色 = Google カレンダーの colorId '8' (Graphite / グレー)
 const GCAL_DONE_COLOR = '8';
+// 過去に接続(同意)済みかの記録キー。次回以降の無言再接続に使う
+const GCAL_CONNECTED_KEY = 'pomodoro_gcal_connected';
 
 const gcalClientIdInput = document.getElementById('gcal-client-id');
 const gcalConnectBtn = document.getElementById('gcal-connect-btn');
@@ -1064,6 +1066,27 @@ const gcalOrigColor = new Map();
 
 function getGcalClientId() {
     try { return (localStorage.getItem(GCAL_CLIENT_ID_KEY) || '').trim(); } catch (_) { return ''; }
+}
+
+// 一度でも接続(同意)できたかを記録する。次回以降は無言で接続を復元するために使う。
+// アクセストークン自体は保存しない (毎回 Google から無言取得する)。
+function isGcalConnectedBefore() {
+    try { return localStorage.getItem(GCAL_CONNECTED_KEY) === '1'; } catch (_) { return false; }
+}
+function setGcalConnectedFlag(connected) {
+    try {
+        if (connected) localStorage.setItem(GCAL_CONNECTED_KEY, '1');
+        else localStorage.removeItem(GCAL_CONNECTED_KEY);
+    } catch (_) { /* 無視 */ }
+}
+
+// 認証に失敗/期限切れしたときの後始末。接続ボタンを再表示して手動接続へ誘導する。
+function onGcalAuthFailure(msg) {
+    gcalAccessToken = null;
+    setGcalConnectedFlag(false);
+    if (gcalRefreshBtn) gcalRefreshBtn.style.display = 'none';
+    if (gcalConnectBtn) { gcalConnectBtn.style.display = ''; gcalConnectBtn.disabled = !getGcalClientId(); }
+    setGcalStatus(msg || '接続できませんでした。「Google と接続」を押してください。');
 }
 
 // 予定が「完了(グレーアウト済み)」かは色で判定する
@@ -1102,10 +1125,15 @@ function ensureGcalTokenClient() {
             callback: (resp) => {
                 if (resp && resp.access_token) {
                     gcalAccessToken = resp.access_token;
+                    setGcalConnectedFlag(true);   // 次回以降は無言で復元できる
                     fetchTodayEvents();
                 } else {
-                    setGcalStatus('接続がキャンセルされました。');
+                    onGcalAuthFailure('接続できませんでした。「Google と接続」を押してください。');
                 }
+            },
+            // 無言取得の失敗・同意拒否・ポップアップ閉じ等はこちらに来る
+            error_callback: () => {
+                onGcalAuthFailure('自動接続できませんでした。「Google と接続」を押してください。');
             },
         });
         gcalTokenClient.__clientId = clientId;
@@ -1113,15 +1141,39 @@ function ensureGcalTokenClient() {
     return gcalTokenClient;
 }
 
-function connectGcal() {
+// prompt: 'consent' = 同意画面を出す / '' = 無言取得を試みる
+function requestGcalToken(prompt) {
     const tc = ensureGcalTokenClient();
     if (!tc) {
         setGcalStatus('Google ライブラリの読み込み、またはクライアント ID をご確認ください。');
         return;
     }
+    tc.requestAccessToken({ prompt });
+}
+
+// 「Google と接続」ボタン (ユーザー操作)。一度許可済みなら無言、未許可なら同意画面。
+function connectGcal() {
+    if (!getGcalClientId()) { setGcalStatus('先に OAuth クライアント ID を設定してください。'); return; }
     setGcalStatus('Google に接続しています…');
-    // 初回のみ同意画面、以降は無言で再取得を試みる
-    tc.requestAccessToken({ prompt: gcalAccessToken ? '' : 'consent' });
+    requestGcalToken(isGcalConnectedBefore() ? '' : 'consent');
+}
+
+// GIS ライブラリ (gsi/client) は async 読み込みのため、準備できてから cb を呼ぶ
+function whenGisReady(cb) {
+    if (window.google && google.accounts && google.accounts.oauth2) { cb(); return; }
+    let tries = 0;
+    const t = setInterval(() => {
+        if (window.google && google.accounts && google.accounts.oauth2) { clearInterval(t); cb(); }
+        else if (++tries > 40) { clearInterval(t); } // 約10秒で諦める
+    }, 250);
+}
+
+// 起動時: クライアント ID があり過去に接続済みなら、ボタンを押さずに無言で復元する。
+// 失敗時は error_callback が接続ボタンを再表示する。
+function autoConnectGcalIfPossible() {
+    if (!getGcalClientId() || !isGcalConnectedBefore()) return;
+    setGcalStatus('接続を復元しています…');
+    whenGisReady(() => requestGcalToken(''));
 }
 
 async function fetchTodayEvents() {
@@ -1281,6 +1333,8 @@ if (gcalClientIdInput) {
 if (gcalConnectBtn) gcalConnectBtn.addEventListener('click', connectGcal);
 if (gcalRefreshBtn) gcalRefreshBtn.addEventListener('click', fetchTodayEvents);
 refreshGcalButtons();
+// 過去に接続済みなら、ページを開いた時点で無言で再接続を試みる (ボタン押下不要)
+autoConnectGcalIfPossible();
 
 // テスト用フック: 実 OAuth / 通信なしで描画・チェック永続化を検証できるようにする。
 // (本番動作には不要だが、外部依存をブロックする QA 環境で UI を検証するため)
