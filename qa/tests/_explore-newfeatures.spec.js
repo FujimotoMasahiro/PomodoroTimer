@@ -14,8 +14,13 @@ async function setEvents(page, events) {
   await page.evaluate((ev) => window.PomodoroTimer.__setGcalEvents(ev), events);
 }
 
-test.describe('探索: 今日の予定カードの見た目とレイアウト', () => {
-  test('デスクトップ幅: 予定カードが横幅いっぱい・横はみ出しなし（証跡）', async ({ page }) => {
+// 予定 / ToDo カード（最寄りの .card）を id 起点で安定取得する。
+// 行内に複数の .card があるため、リスト要素から祖先カードを辿る。
+const eventsCard = (page) => page.locator('#gcal-event-list').locator('xpath=ancestor::div[contains(@class,"card")][1]');
+const todoCard = (page) => page.locator('#gtasks-list').locator('xpath=ancestor::div[contains(@class,"card")][1]');
+
+test.describe('探索: 今日の予定 & ToDo カードの見た目とレイアウト', () => {
+  test('デスクトップ幅: 予定/ToDo が 2 カラム（各おおよそ半幅）・横はみ出しなし（証跡）', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await gotoApp(page);
     await setEvents(page, EVENTS);
@@ -24,10 +29,19 @@ test.describe('探索: 今日の予定カードの見た目とレイアウト', 
     await area.scrollIntoViewIfNeeded();
     await area.screenshot({ path: `${SHOT_DIR}/calendar-desktop.png` });
 
-    // 予定カード（card）が行内でほぼ全幅を占める（col-12 単独カード）
+    // 新レイアウト: 予定(col-lg-6)・ToDo(col-lg-6) の 2 カラム。
+    // 各カードは行幅のおおよそ半分（>35% 〜 <65%）で横並び。
     const rowBox = await area.boundingBox();
-    const cardBox = await area.locator('.card').boundingBox();
-    expect(cardBox.width).toBeGreaterThan(rowBox.width * 0.9);
+    const evBox = await eventsCard(page).boundingBox();
+    const todoBox = await todoCard(page).boundingBox();
+    expect(evBox.width).toBeGreaterThan(rowBox.width * 0.35);
+    expect(evBox.width).toBeLessThan(rowBox.width * 0.65);
+    expect(todoBox.width).toBeGreaterThan(rowBox.width * 0.35);
+    expect(todoBox.width).toBeLessThan(rowBox.width * 0.65);
+    // 横並び（同じ行＝上端がほぼ揃う）
+    expect(Math.abs(evBox.y - todoBox.y)).toBeLessThan(4);
+    // h-100 で高さが揃う
+    expect(Math.abs(evBox.height - todoBox.height)).toBeLessThanOrEqual(2);
 
     // 横はみ出しが無い
     const overflow = await page.evaluate(
@@ -39,7 +53,7 @@ test.describe('探索: 今日の予定カードの見た目とレイアウト', 
     await expect(page.locator('#gcal-event-list > li')).toHaveCount(3);
   });
 
-  test('モバイル幅(390): 予定リスト表示・横はみ出しなし（証跡）', async ({ page }) => {
+  test('モバイル幅(390): 予定/ToDo が縦積み・横はみ出しなし（証跡）', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await gotoApp(page);
     await setEvents(page, EVENTS);
@@ -48,6 +62,11 @@ test.describe('探索: 今日の予定カードの見た目とレイアウト', 
     await area.scrollIntoViewIfNeeded();
     await area.screenshot({ path: `${SHOT_DIR}/calendar-mobile.png` });
 
+    // <lg はブレークポイント未満なので col-12 で縦積み（ToDo が予定の下）
+    const evBox = await eventsCard(page).boundingBox();
+    const todoBox = await todoCard(page).boundingBox();
+    expect(todoBox.y).toBeGreaterThan(evBox.y + evBox.height - 4);
+
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth
     );
@@ -55,6 +74,9 @@ test.describe('探索: 今日の予定カードの見た目とレイアウト', 
 
     await expect(page.locator('#gcal-open-full')).toBeVisible();
     await expect(page.locator('#gcal-event-list > li')).toHaveCount(3);
+    // ToDo カードも見えている（未接続なので案内文が可視）
+    await expect(page.locator('#gtasks-status')).toBeVisible();
+    await expect(todoCard(page)).toBeVisible();
   });
 
   test('設定サイドバー: OAuth クライアント ID 入力欄の証跡', async ({ page }) => {
