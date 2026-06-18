@@ -211,8 +211,11 @@ test.describe('BUG-104: 元色の localStorage 永続化', () => {
 // ---------------------------------------------------------------------------
 // BUG-101: 自動/手動の接続失敗時 UX 文言
 // ---------------------------------------------------------------------------
-test.describe('BUG-101: 接続失敗時の案内文言', () => {
-  test('観点4: auto 失敗(error_callback) → 穏やか文言・connected 削除・connect ボタン表示', async ({ page }) => {
+test.describe('BUG-101: 接続失敗時の案内文言（2026-06-18 接続フロー修正後）', () => {
+  const AUTO_MSG = '「Google と接続」を押すと今日の予定を表示します。';
+  const MANUAL_MSG = '接続できませんでした。許可画面で予定の閲覧・編集を許可のうえ、もう一度お試しください。';
+
+  test('観点4: auto 失敗(error_callback) → 穏やか文言・connected 温存・connect ボタン表示', async ({ page }) => {
     await installInitStubs(page);
     await gotoApp(page, { localStorage: { [CLIENT_ID_KEY]: CLIENT_ID, [CONNECTED_KEY]: '1' } });
 
@@ -223,35 +226,36 @@ test.describe('BUG-101: 接続失敗時の案内文言', () => {
 
     const status = page.locator('#gcal-status');
     await expect(status).toBeVisible();
-    await expect(status).toHaveText('接続するには「Google と接続」を押してください。');
-    await expect.poll(() => page.evaluate((k) => localStorage.getItem(k), CONNECTED_KEY)).toBeNull();
+    await expect(status).toHaveText(AUTO_MSG);
+    // 失敗ではフラグを消さない（成功時のみ '1' をセット）
+    await expect.poll(() => page.evaluate((k) => localStorage.getItem(k), CONNECTED_KEY)).toBe('1');
     await expect(page.locator('#gcal-connect-btn')).toBeVisible();
     await expect(page.locator('#gcal-refresh-btn')).toBeHidden();
   });
 
-  test('観点4b: auto 失敗(空レスポンス callback) でも同じ穏やか文言', async ({ page }) => {
+  test('観点4b: auto 失敗(空レスポンス callback) でも同じ穏やか文言・フラグ温存', async ({ page }) => {
     await installInitStubs(page);
     await gotoApp(page, { localStorage: { [CLIENT_ID_KEY]: CLIENT_ID, [CONNECTED_KEY]: '1' } });
 
     await expect.poll(() => tokenCalls(page)).toHaveLength(1);
     await page.evaluate(() => window.__gisCtl.fireEmpty());
 
-    await expect(page.locator('#gcal-status')).toHaveText('接続するには「Google と接続」を押してください。');
-    await expect.poll(() => page.evaluate((k) => localStorage.getItem(k), CONNECTED_KEY)).toBeNull();
+    await expect(page.locator('#gcal-status')).toHaveText(AUTO_MSG);
+    await expect.poll(() => page.evaluate((k) => localStorage.getItem(k), CONNECTED_KEY)).toBe('1');
   });
 
-  test('観点5: manual 失敗(error_callback) → 「接続できませんでした。もう一度…」', async ({ page }) => {
+  test('観点5: manual 失敗(error_callback) → 「接続できませんでした。許可画面で…お試しください。」', async ({ page }) => {
     await installInitStubs(page);
-    // connected フラグ無し → 起動時 autoConnect は走らない。手動ボタンで consent 要求。
+    // connected フラグ無し → 起動時 autoConnect は走らない。手動ボタンは常に対話モード（prompt キー無し）。
     await gotoApp(page, { localStorage: { [CLIENT_ID_KEY]: CLIENT_ID } });
 
     await page.locator('#gcal-connect-btn').click();
     await expect.poll(() => tokenCalls(page)).toHaveLength(1);
-    expect((await tokenCalls(page))[0].prompt).toBe('consent');
+    const call = (await tokenCalls(page))[0];
+    expect(Object.prototype.hasOwnProperty.call(call, 'prompt') && call.prompt !== undefined).toBe(false);
 
     await page.evaluate(() => window.__gisCtl.error());
-    await expect(page.locator('#gcal-status'))
-      .toHaveText('接続できませんでした。もう一度「Google と接続」を押してください。');
+    await expect(page.locator('#gcal-status')).toHaveText(MANUAL_MSG);
   });
 
   test('観点5b: manual 失敗(空レスポンス callback) でも manual 文言', async ({ page }) => {
@@ -262,8 +266,7 @@ test.describe('BUG-101: 接続失敗時の案内文言', () => {
     await expect.poll(() => tokenCalls(page)).toHaveLength(1);
     await page.evaluate(() => window.__gisCtl.fireEmpty());
 
-    await expect(page.locator('#gcal-status'))
-      .toHaveText('接続できませんでした。もう一度「Google と接続」を押してください。');
+    await expect(page.locator('#gcal-status')).toHaveText(MANUAL_MSG);
   });
 });
 
@@ -321,8 +324,8 @@ test.describe('BUG-105: in-flight 中の多重発火防止', () => {
     await page.evaluate(() => { window.__tokenCalls = []; });
     await page.locator('#gcal-connect-btn').click();
     await expect.poll(() => tokenCalls(page)).toHaveLength(1);
-    // フラグ解除済みなので consent
-    expect((await tokenCalls(page))[0].prompt).toBe('consent');
+    // 手動接続は常に対話モード = prompt キー無し（undefined）
+    expect((await tokenCalls(page))[0].prompt).toBeUndefined();
   });
 });
 

@@ -1,11 +1,13 @@
 // Googleカレンダー認証保持（無言の自動再接続）の検証。
 //
-// 変更仕様（今回）:
+// 変更仕様（2026-06-18 接続フロー修正後）:
 //  - 接続成功時に localStorage['pomodoro_gcal_connected']='1' を保存（access_token は保存しない）。
 //  - 起動時、client_id があり かつ connected==='1' なら GIS 準備完了後に
-//    requestAccessToken({prompt:''}) を自動実行（ボタン押下不要）。#gcal-status は「接続を復元しています…」。
-//  - 手動「Google と接続」ボタン: 過去接続済みなら prompt:''、未接続なら prompt:'consent'。
-//  - error_callback で onGcalAuthFailure(): connected フラグ削除・接続ボタン再表示・status にエラー文。
+//    requestAccessToken({prompt:''}) を自動実行（無言復元・ボタン押下不要）。#gcal-status は「接続を復元しています…」。
+//  - 手動「Google と接続」ボタン: 接続済みフラグの有無に関わらず *常に対話モード* で
+//    requestAccessToken({}) を呼ぶ（prompt キーを持たない）。3rd-party cookie 制限環境でも同意 UI を出すため。
+//  - 失敗（error_callback / 空 callback）では connected フラグを *消さない*（成功時のみ '1' をセット）。
+//    無言取得が使える環境での自動復元を止めないため。接続ボタン再表示・status に案内文は従来どおり。
 //
 // 決定論化:
 //  - window.google.accounts.oauth2.initTokenClient を addInitScript で「ページ読み込み前に」スタブ。
@@ -43,7 +45,11 @@ async function installInitStubs(page, opts = {}) {
             ctl.error = () => { if (cfg.error_callback) cfg.error_callback({ type: 'popup_closed' }); };
             return {
               requestAccessToken(args) {
-                window.__tokenCalls.push({ prompt: (args && args.prompt) });
+                const a = args || {};
+                window.__tokenCalls.push({
+                  prompt: a.prompt,
+                  hasPromptKey: Object.prototype.hasOwnProperty.call(a, 'prompt'),
+                });
               },
             };
           },
@@ -131,24 +137,29 @@ test.describe('GCal 認証保持: 起動時の自動接続', () => {
 });
 
 // ---------------------------------------------------------------------------
-test.describe('GCal 認証保持: 手動接続ボタンの prompt 値', () => {
-  test('未接続でボタン押下 → prompt:"consent"', async ({ page }) => {
+test.describe('GCal 認証保持: 手動接続ボタンは常に対話モード（prompt キー無し）', () => {
+  test('未接続でボタン押下 → requestAccessToken に prompt キーを持たない {}', async ({ page }) => {
     await installInitStubs(page);
     await gotoApp(page, { localStorage: { [CLIENT_ID_KEY]: CLIENT_ID } });
 
     await page.locator('#gcal-connect-btn').click();
     await expect.poll(() => tokenCalls(page)).toHaveLength(1);
-    expect((await tokenCalls(page))[0].prompt).toBe('consent');
+    const call = (await tokenCalls(page))[0];
+    expect(call.hasPromptKey).toBe(false);
+    expect(call.prompt).toBeUndefined();
   });
 
-  test('connected=1 でボタン押下 → prompt:""（無言）', async ({ page }) => {
+  test('connected=1 でも手動ボタン押下 → prompt キーを持たない {}（無言にしない）', async ({ page }) => {
     await installInitStubs(page);
-    // 起動時の autoConnect が prompt:'' を1回呼ぶ。BUG-105 修正以降は callback/error_callback が
-    // 来るまで gcalAuthInFlight=true で再要求が抑止されるため、in-flight を解いてからボタンを押す。
-    // （error_callback は connected フラグを消すので、prompt:'' を維持するため成功 callback で解除する。
-    //   成功すると接続ボタンは「更新」へ切り替わるので、UI 状態を擬似復帰させてから押下する。）
+    // 起動時の autoConnect が prompt:'' を1回呼ぶ。callback/error_callback が来るまで
+    // gcalAuthInFlight=true で再要求が抑止されるため、成功 callback で in-flight を解いてからボタンを押す。
+    // 成功すると接続ボタンは「更新」へ切り替わるので、UI 状態を擬似復帰させてから押下する。
     await gotoApp(page, { localStorage: { [CLIENT_ID_KEY]: CLIENT_ID, [CONNECTED_KEY]: '1' } });
     await expect.poll(() => tokenCalls(page)).toHaveLength(1);
+    // 自動復元は prompt:'' で呼ばれていること
+    expect((await tokenCalls(page))[0].hasPromptKey).toBe(true);
+    expect((await tokenCalls(page))[0].prompt).toBe('');
+
     await page.evaluate(() => window.__gisCtl.fire('AUTO_TOK')); // in-flight 解除 + connected 維持
     await expect(page.locator('#gcal-refresh-btn')).toBeVisible();
     await page.evaluate(() => {
@@ -159,7 +170,10 @@ test.describe('GCal 認証保持: 手動接続ボタンの prompt 値', () => {
 
     await page.locator('#gcal-connect-btn').click();
     await expect.poll(() => tokenCalls(page)).toHaveLength(1);
-    expect((await tokenCalls(page))[0].prompt).toBe('');
+    // 手動接続は常に対話モード = prompt キー無し（無言ではない）
+    const call = (await tokenCalls(page))[0];
+    expect(call.hasPromptKey).toBe(false);
+    expect(call.prompt).toBeUndefined();
   });
 });
 
@@ -203,8 +217,8 @@ test.describe('GCal 認証保持: 成功でフラグ保存 / access_token 非永
 });
 
 // ---------------------------------------------------------------------------
-test.describe('GCal 認証保持: error_callback でフラグ解除＆復帰', () => {
-  test('起動時の無言取得で error_callback 発火 → connected 削除・接続ボタン再表示・status エラー文', async ({ page }) => {
+test.describe('GCal 認証保持: 失敗でフラグ温存＆復帰（フラグは消さない）', () => {
+  test('起動時の無言取得で error_callback 発火 → connected 温存・接続ボタン再表示・案内文', async ({ page }) => {
     await installInitStubs(page);
     await gotoApp(page, { localStorage: { [CLIENT_ID_KEY]: CLIENT_ID, [CONNECTED_KEY]: '1' } });
 
@@ -214,40 +228,43 @@ test.describe('GCal 認証保持: error_callback でフラグ解除＆復帰', (
     // 無言取得失敗を error_callback で再現
     await page.evaluate(() => window.__gisCtl.error());
 
-    // connected フラグが消える
-    await expect.poll(() => page.evaluate((k) => localStorage.getItem(k), CONNECTED_KEY)).toBeNull();
+    // connected フラグは温存される（成功時のみセット・失敗では消さない）
+    await expect.poll(() => page.evaluate((k) => localStorage.getItem(k), CONNECTED_KEY)).toBe('1');
     // 接続ボタン再表示・更新非表示
     await expect(page.locator('#gcal-connect-btn')).toBeVisible();
     await expect(page.locator('#gcal-refresh-btn')).toBeHidden();
-    // status にエラー / 案内文
+    // status に穏当な案内文（auto 失敗）
     const status = page.locator('#gcal-status');
     await expect(status).toBeVisible();
-    await expect(status).toContainText(/接続|Google と接続/);
+    await expect(status).toContainText('「Google と接続」を押すと今日の予定を表示します。');
   });
 
-  test('error 後は接続ボタンが prompt:"consent"（フラグ解除済みのため）', async ({ page }) => {
+  test('error 後の手動接続も対話モード（prompt キー無し）', async ({ page }) => {
     await installInitStubs(page);
     await gotoApp(page, { localStorage: { [CLIENT_ID_KEY]: CLIENT_ID, [CONNECTED_KEY]: '1' } });
 
     await expect.poll(() => tokenCalls(page)).toHaveLength(1);
     await page.evaluate(() => window.__gisCtl.error());
-    await expect.poll(() => page.evaluate((k) => localStorage.getItem(k), CONNECTED_KEY)).toBeNull();
+    // フラグ温存
+    await expect.poll(() => page.evaluate((k) => localStorage.getItem(k), CONNECTED_KEY)).toBe('1');
 
     await page.evaluate(() => { window.__tokenCalls = []; });
     await page.locator('#gcal-connect-btn').click();
     await expect.poll(() => tokenCalls(page)).toHaveLength(1);
-    // フラグ解除済み → 同意画面 (consent) へ
-    expect((await tokenCalls(page))[0].prompt).toBe('consent');
+    // 手動接続は常に対話モード = prompt キー無し
+    const call = (await tokenCalls(page))[0];
+    expect(call.hasPromptKey).toBe(false);
+    expect(call.prompt).toBeUndefined();
   });
 
-  test('空レスポンス callback（access_token 無し）でも onGcalAuthFailure 経路で復帰する', async ({ page }) => {
+  test('空レスポンス callback（access_token 無し）でも復帰し、フラグは温存される', async ({ page }) => {
     await installInitStubs(page);
     await gotoApp(page, { localStorage: { [CLIENT_ID_KEY]: CLIENT_ID, [CONNECTED_KEY]: '1' } });
 
     await expect.poll(() => tokenCalls(page)).toHaveLength(1);
     await page.evaluate(() => window.__gisCtl.fireEmpty());
 
-    await expect.poll(() => page.evaluate((k) => localStorage.getItem(k), CONNECTED_KEY)).toBeNull();
+    await expect.poll(() => page.evaluate((k) => localStorage.getItem(k), CONNECTED_KEY)).toBe('1');
     await expect(page.locator('#gcal-connect-btn')).toBeVisible();
   });
 });

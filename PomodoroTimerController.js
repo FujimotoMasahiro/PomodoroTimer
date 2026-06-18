@@ -1098,12 +1098,13 @@ function saveGcalOrigColors(map) {
 }
 
 // 認証に失敗/期限切れしたときの後始末。接続ボタンを再表示して手動接続へ誘導する。
+// 接続済みフラグは消さない: 手動接続は常に対話モードなので消す必要がなく、
+// 消すと「無言取得が使える環境」で次回以降の自動復元まで止めてしまうため。
 function onGcalAuthFailure(msg) {
     gcalAccessToken = null;
-    setGcalConnectedFlag(false);
     if (gcalRefreshBtn) gcalRefreshBtn.style.display = 'none';
     if (gcalConnectBtn) { gcalConnectBtn.style.display = ''; gcalConnectBtn.disabled = !getGcalClientId(); }
-    setGcalStatus(msg || '接続できませんでした。「Google と接続」を押してください。');
+    setGcalStatus(msg || '「Google と接続」を押すと今日の予定を表示します。');
 }
 
 // 予定が「完了(グレーアウト済み)」かは色で判定する
@@ -1145,12 +1146,12 @@ function ensureGcalTokenClient() {
                 gcalConnectMode = 'manual';
                 if (resp && resp.access_token) {
                     gcalAccessToken = resp.access_token;
-                    setGcalConnectedFlag(true);   // 次回以降は無言で復元できる
+                    setGcalConnectedFlag(true);   // 次回以降は無言復元を試みる
                     fetchTodayEvents();
                 } else {
                     onGcalAuthFailure(auto
-                        ? '接続するには「Google と接続」を押してください。'
-                        : '接続できませんでした。もう一度「Google と接続」を押してください。');
+                        ? '「Google と接続」を押すと今日の予定を表示します。'
+                        : '接続できませんでした。許可画面で予定の閲覧・編集を許可のうえ、もう一度お試しください。');
                 }
             },
             // 無言取得の失敗・同意拒否・ポップアップ閉じ等はこちらに来る。
@@ -1160,8 +1161,8 @@ function ensureGcalTokenClient() {
                 const auto = gcalConnectMode === 'auto';
                 gcalConnectMode = 'manual';
                 onGcalAuthFailure(auto
-                    ? '接続するには「Google と接続」を押してください。'
-                    : '接続できませんでした。もう一度「Google と接続」を押してください。');
+                    ? '「Google と接続」を押すと今日の予定を表示します。'
+                    : '接続できませんでした。許可画面で予定の閲覧・編集を許可のうえ、もう一度お試しください。');
             },
         });
         gcalTokenClient.__clientId = clientId;
@@ -1170,7 +1171,9 @@ function ensureGcalTokenClient() {
 }
 
 // prompt: 'consent' = 同意画面を出す / '' = 無言取得を試みる
-function requestGcalToken(prompt) {
+// config はそのまま requestAccessToken へ渡す。
+// 対話接続 = {} (必要に応じ UI を表示) / 無言接続 = { prompt: '' }
+function requestGcalToken(config) {
     if (gcalAuthInFlight) return;   // 多重の再認証要求を防ぐ
     const tc = ensureGcalTokenClient();
     if (!tc) {
@@ -1178,15 +1181,17 @@ function requestGcalToken(prompt) {
         return;
     }
     gcalAuthInFlight = true;
-    tc.requestAccessToken({ prompt });
+    tc.requestAccessToken(config || {});
 }
 
-// 「Google と接続」ボタン (ユーザー操作)。一度許可済みなら無言、未許可なら同意画面。
+// 「Google と接続」ボタン (ユーザー操作)。常に対話モードで呼ぶ。
+// こうすることで、無言取得が 3rd-party cookie 制限などで失敗する環境でも、
+// 同意/アカウント選択 UI が出て確実に接続できる (= ボタンが効かない状態を防ぐ)。
 function connectGcal() {
     if (!getGcalClientId()) { setGcalStatus('先に OAuth クライアント ID を設定してください。'); return; }
     gcalConnectMode = 'manual';
     setGcalStatus('Google に接続しています…');
-    requestGcalToken(isGcalConnectedBefore() ? '' : 'consent');
+    requestGcalToken({});
 }
 
 // GIS ライブラリ (gsi/client) は async 読み込みのため、準備できてから cb を呼ぶ
@@ -1205,7 +1210,7 @@ function autoConnectGcalIfPossible() {
     if (!getGcalClientId() || !isGcalConnectedBefore()) return;
     gcalConnectMode = 'auto';
     setGcalStatus('接続を復元しています…');
-    whenGisReady(() => requestGcalToken(''));
+    whenGisReady(() => requestGcalToken({ prompt: '' }));
 }
 
 async function fetchTodayEvents() {
