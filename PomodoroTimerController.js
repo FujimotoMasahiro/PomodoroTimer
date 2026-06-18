@@ -1048,6 +1048,8 @@ const GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
 const GCAL_DONE_COLOR = '8';
 // 過去に接続(同意)済みかの記録キー。次回以降の無言再接続に使う
 const GCAL_CONNECTED_KEY = 'pomodoro_gcal_connected';
+// グレーにする前の元の色を保存するキー (リロードしても元色を失わないため)
+const GCAL_ORIG_COLOR_KEY = 'pomodoro_gcal_orig_colors';
 
 const gcalClientIdInput = document.getElementById('gcal-client-id');
 const gcalConnectBtn = document.getElementById('gcal-connect-btn');
@@ -1061,8 +1063,11 @@ const gcalProgressLabel = document.getElementById('gcal-progress-label');
 let gcalTokenClient = null;
 let gcalAccessToken = null;        // メモリのみ (永続化しない)
 let gcalEvents = [];               // 今日の予定 [{ id, title, allDay, start, colorId }]
-// チェックを外したときに復元するため、グレーにする前の色を覚えておく (id -> colorId)
-const gcalOrigColor = new Map();
+// チェックを外したときに復元するため、グレーにする前の色を覚えておく (localStorage 永続)
+const gcalOrigColor = loadGcalOrigColors();
+// 接続処理の状態管理
+let gcalConnectMode = 'manual';    // 'auto'=起動時の無言復元 / 'manual'=ボタン操作
+let gcalAuthInFlight = false;      // 多重の再認証要求を防ぐ
 
 function getGcalClientId() {
     try { return (localStorage.getItem(GCAL_CLIENT_ID_KEY) || '').trim(); } catch (_) { return ''; }
@@ -1078,6 +1083,18 @@ function setGcalConnectedFlag(connected) {
         if (connected) localStorage.setItem(GCAL_CONNECTED_KEY, '1');
         else localStorage.removeItem(GCAL_CONNECTED_KEY);
     } catch (_) { /* 無視 */ }
+}
+
+// グレーにする前の元の色 (id -> colorId 文字列。''=既定色) を localStorage と同期する。
+// リロードをまたいでもチェック解除時に元の色へ正しく戻せるようにするため。
+function loadGcalOrigColors() {
+    try {
+        const obj = JSON.parse(localStorage.getItem(GCAL_ORIG_COLOR_KEY) || '{}');
+        return new Map(obj && typeof obj === 'object' ? Object.entries(obj) : []);
+    } catch (_) { return new Map(); }
+}
+function saveGcalOrigColors(map) {
+    try { localStorage.setItem(GCAL_ORIG_COLOR_KEY, JSON.stringify(Object.fromEntries(map))); } catch (_) { /* 無視 */ }
 }
 
 // 認証に失敗/期限切れしたときの後始末。接続ボタンを再表示して手動接続へ誘導する。
@@ -1123,17 +1140,28 @@ function ensureGcalTokenClient() {
             client_id: clientId,
             scope: GCAL_SCOPE,
             callback: (resp) => {
+                gcalAuthInFlight = false;
+                const auto = gcalConnectMode === 'auto';
+                gcalConnectMode = 'manual';
                 if (resp && resp.access_token) {
                     gcalAccessToken = resp.access_token;
                     setGcalConnectedFlag(true);   // 次回以降は無言で復元できる
                     fetchTodayEvents();
                 } else {
-                    onGcalAuthFailure('接続できませんでした。「Google と接続」を押してください。');
+                    onGcalAuthFailure(auto
+                        ? '接続するには「Google と接続」を押してください。'
+                        : '接続できませんでした。もう一度「Google と接続」を押してください。');
                 }
             },
-            // 無言取得の失敗・同意拒否・ポップアップ閉じ等はこちらに来る
+            // 無言取得の失敗・同意拒否・ポップアップ閉じ等はこちらに来る。
+            // 起動時の無言復元(auto)が失敗したときは、壊れた印象を与えないよう穏やかに案内する。
             error_callback: () => {
-                onGcalAuthFailure('自動接続できませんでした。「Google と接続」を押してください。');
+                gcalAuthInFlight = false;
+                const auto = gcalConnectMode === 'auto';
+                gcalConnectMode = 'manual';
+                onGcalAuthFailure(auto
+                    ? '接続するには「Google と接続」を押してください。'
+                    : '接続できませんでした。もう一度「Google と接続」を押してください。');
             },
         });
         gcalTokenClient.__clientId = clientId;
@@ -1143,17 +1171,20 @@ function ensureGcalTokenClient() {
 
 // prompt: 'consent' = 同意画面を出す / '' = 無言取得を試みる
 function requestGcalToken(prompt) {
+    if (gcalAuthInFlight) return;   // 多重の再認証要求を防ぐ
     const tc = ensureGcalTokenClient();
     if (!tc) {
         setGcalStatus('Google ライブラリの読み込み、またはクライアント ID をご確認ください。');
         return;
     }
+    gcalAuthInFlight = true;
     tc.requestAccessToken({ prompt });
 }
 
 // 「Google と接続」ボタン (ユーザー操作)。一度許可済みなら無言、未許可なら同意画面。
 function connectGcal() {
     if (!getGcalClientId()) { setGcalStatus('先に OAuth クライアント ID を設定してください。'); return; }
+    gcalConnectMode = 'manual';
     setGcalStatus('Google に接続しています…');
     requestGcalToken(isGcalConnectedBefore() ? '' : 'consent');
 }
@@ -1172,6 +1203,7 @@ function whenGisReady(cb) {
 // 失敗時は error_callback が接続ボタンを再表示する。
 function autoConnectGcalIfPossible() {
     if (!getGcalClientId() || !isGcalConnectedBefore()) return;
+    gcalConnectMode = 'auto';
     setGcalStatus('接続を復元しています…');
     whenGisReady(() => requestGcalToken(''));
 }
@@ -1300,8 +1332,11 @@ function renderGcalEvents() {
         cb.addEventListener('change', async () => {
             const want = cb.checked;
             const prevColor = ev.colorId;
-            // グレーにする前の色を控える (復元用)。既に控えていれば上書きしない
-            if (want && !gcalOrigColor.has(ev.id)) gcalOrigColor.set(ev.id, prevColor || '');
+            // グレーにする前の色を控える (復元用・localStorage 永続)。既に控えていれば上書きしない
+            if (want && !gcalOrigColor.has(ev.id)) {
+                gcalOrigColor.set(ev.id, prevColor || '');
+                saveGcalOrigColors(gcalOrigColor);
+            }
             // 楽観的に反映 → 失敗時はロールバック
             ev.colorId = want ? GCAL_DONE_COLOR : (gcalOrigColor.get(ev.id) || '');
             applyDoneStyle();
@@ -1314,6 +1349,10 @@ function renderGcalEvents() {
                 cb.checked = isEventDone(ev);
                 applyDoneStyle();
                 updateGcalProgress();
+            } else if (!want) {
+                // 元の色へ戻せたので控えを破棄する
+                gcalOrigColor.delete(ev.id);
+                saveGcalOrigColors(gcalOrigColor);
             }
         });
 

@@ -143,10 +143,19 @@ test.describe('GCal 認証保持: 手動接続ボタンの prompt 値', () => {
 
   test('connected=1 でボタン押下 → prompt:""（無言）', async ({ page }) => {
     await installInitStubs(page);
-    // 起動時の autoConnect が prompt:'' を1回呼ぶので、それを消費してからボタンを押す
+    // 起動時の autoConnect が prompt:'' を1回呼ぶ。BUG-105 修正以降は callback/error_callback が
+    // 来るまで gcalAuthInFlight=true で再要求が抑止されるため、in-flight を解いてからボタンを押す。
+    // （error_callback は connected フラグを消すので、prompt:'' を維持するため成功 callback で解除する。
+    //   成功すると接続ボタンは「更新」へ切り替わるので、UI 状態を擬似復帰させてから押下する。）
     await gotoApp(page, { localStorage: { [CLIENT_ID_KEY]: CLIENT_ID, [CONNECTED_KEY]: '1' } });
     await expect.poll(() => tokenCalls(page)).toHaveLength(1);
-    await page.evaluate(() => { window.__tokenCalls = []; });
+    await page.evaluate(() => window.__gisCtl.fire('AUTO_TOK')); // in-flight 解除 + connected 維持
+    await expect(page.locator('#gcal-refresh-btn')).toBeVisible();
+    await page.evaluate(() => {
+      window.__tokenCalls = [];
+      const b = document.getElementById('gcal-connect-btn');
+      if (b) b.style.display = ''; // connect ボタンを擬似再表示して再接続経路を起動
+    });
 
     await page.locator('#gcal-connect-btn').click();
     await expect.poll(() => tokenCalls(page)).toHaveLength(1);
