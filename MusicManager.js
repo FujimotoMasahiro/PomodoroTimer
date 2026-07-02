@@ -27,6 +27,29 @@ export class MusicManager {
         // <audio>要素を取得
         this.audioPlayer = audioPlayerElement;
 
+        // 一部のブラウザ拡張 (再生速度コントローラ = Global Speed / Video Speed
+        // Controller 等) は、ページ上の全メディア要素に同じ再生速度を一括適用する。
+        // そのため作業中に YouTube の速度を変えると、休憩 BGM の <audio> まで
+        // 同じ速度になってしまう。BGM は常に等速で流したいので、再生速度を 1.0 に
+        // ロックし、外部から書き換えられても即座に 1.0 へ戻す。
+        this._lockPlaybackRate();
+    }
+
+    // BGM の再生速度を常に等速 (1.0) に固定する。
+    // preservesPitch も true にしておき、万一速度が変わってもピッチは保つ。
+    _lockPlaybackRate() {
+        const el = this.audioPlayer;
+        if (!el) return;
+        const enforce = () => {
+            try {
+                if ('preservesPitch' in el) el.preservesPitch = true;
+                if (el.playbackRate !== 1) el.playbackRate = 1;
+            } catch (_) { /* 未対応環境は無視 */ }
+        };
+        enforce();
+        // 外部 (拡張機能等) が速度を書き換えると ratechange が飛ぶので、その場で戻す。
+        // 自分で 1.0 に戻したときは playbackRate===1 なので再設定されず、無限ループしない。
+        el.addEventListener('ratechange', enforce);
     }
 
     /**
@@ -138,6 +161,13 @@ export class MusicManager {
         // }
         // this.currentState = state;
         // this.state[state].audio.play();
+        // 拡張機能が付けた再生速度が残っていることがあるため、再生開始時に等速へ戻す。
+        if (this.audioPlayer) {
+            try {
+                if ('preservesPitch' in this.audioPlayer) this.audioPlayer.preservesPitch = true;
+                this.audioPlayer.playbackRate = 1;
+            } catch (_) { /* 未対応環境は無視 */ }
+        }
         this.audioPlayer.play(); // 再生
     }
 
