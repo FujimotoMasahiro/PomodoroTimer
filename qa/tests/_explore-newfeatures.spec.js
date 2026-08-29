@@ -1,6 +1,7 @@
-// 探索用: Googleカレンダー連携（予定をタスク扱い・col-12 単独カード）の
+// 探索用: Googleカレンダー連携（予定をタスク扱い）の
 // 見た目/レイアウト/モバイル耐性の証跡取得 spec（命名に _ を付け既存と区別）。
-// ※ ToDo(Tasks) カラムは仕様削除済み。予定カードは col-12 全幅単独。
+// ※ ToDo(Tasks) カラムは仕様削除済み。予定カードは左カラム(.main-col)の
+//   「現在の音源」(動画) カード直下に単独配置。
 import { test, expect, gotoApp } from './fixtures.js';
 
 const SHOT_DIR = 'reports/screenshots';
@@ -16,21 +17,28 @@ async function setEvents(page, events) {
 
 // 予定カード（最寄りの .card）を id 起点で安定取得する。
 const eventsCard = (page) => page.locator('#gcal-event-list').locator('xpath=ancestor::div[contains(@class,"card")][1]');
+// 動画（YouTube）を含む「現在の音源」カード。
+const mediaCard = (page) => page.locator('#youtubeWrapper').locator('xpath=ancestor::div[contains(@class,"card")][1]');
 
-test.describe('探索: 今日の予定カード（col-12 単独）の見た目とレイアウト', () => {
-  test('デスクトップ幅: 予定カードが行幅いっぱい・横はみ出しなし（証跡）', async ({ page }) => {
+test.describe('探索: 今日の予定カード（左カラム・動画の下）の見た目とレイアウト', () => {
+  test('デスクトップ幅: 予定カードが左カラム全幅・動画の下・横はみ出しなし（証跡）', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await gotoApp(page);
     await setEvents(page, EVENTS);
 
-    const area = page.locator('.row.g-3.mt-1').last();
-    await area.scrollIntoViewIfNeeded();
-    await area.screenshot({ path: `${SHOT_DIR}/calendar-desktop.png` });
+    const area = page.locator('.main-col');
+    await eventsCard(page).scrollIntoViewIfNeeded();
+    await eventsCard(page).screenshot({ path: `${SHOT_DIR}/calendar-desktop.png` });
 
-    // col-12 単独: カードは行幅のほぼ全幅（>90%）。ToDo カラムは存在しない。
+    // 左カラム内に単独配置: カードは列幅のほぼ全幅（>90%）。ToDo カラムは存在しない。
     const rowBox = await area.boundingBox();
     const evBox = await eventsCard(page).boundingBox();
     expect(evBox.width).toBeGreaterThan(rowBox.width * 0.9);
+
+    // 予定カードは左カラムの中で、動画カードより下にある
+    await expect(area.locator('#gcal-event-list')).toHaveCount(1);
+    const mediaBox = await mediaCard(page).boundingBox();
+    expect(evBox.y).toBeGreaterThan(mediaBox.y + mediaBox.height - 1);
 
     // ToDo 関連要素は DOM に存在しない
     await expect(page.locator('#gtasks-list')).toHaveCount(0);
@@ -46,18 +54,22 @@ test.describe('探索: 今日の予定カード（col-12 単独）の見た目�
     await expect(page.locator('#gcal-event-list > li')).toHaveCount(3);
   });
 
-  test('モバイル幅(390): 予定カードが全幅・横はみ出しなし（証跡）', async ({ page }) => {
+  test('モバイル幅(390): 予定カードが全幅・動画の下・横はみ出しなし（証跡）', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await gotoApp(page);
     await setEvents(page, EVENTS);
 
-    const area = page.locator('.row.g-3.mt-1').last();
-    await area.scrollIntoViewIfNeeded();
-    await area.screenshot({ path: `${SHOT_DIR}/calendar-mobile.png` });
+    const area = page.locator('.main-col');
+    await eventsCard(page).scrollIntoViewIfNeeded();
+    await eventsCard(page).screenshot({ path: `${SHOT_DIR}/calendar-mobile.png` });
 
     const rowBox = await area.boundingBox();
     const evBox = await eventsCard(page).boundingBox();
     expect(evBox.width).toBeGreaterThan(rowBox.width * 0.9);
+
+    await expect(area.locator('#gcal-event-list')).toHaveCount(1);
+    const mediaBox = await mediaCard(page).boundingBox();
+    expect(evBox.y).toBeGreaterThan(mediaBox.y + mediaBox.height - 1);
 
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth

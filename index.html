@@ -112,6 +112,33 @@
                     </div>
                 </div>
 
+                <!-- 今日の予定エリア (Calendar API・チェックで予定をグレーアウト・動画の下) -->
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                            <h5 class="card-title mb-0">今日の予定</h5>
+                            <div class="d-flex flex-wrap align-items-center gap-2">
+                                <span id="gcal-progress-label" class="badge bg-secondary" style="display:none;">0 / 0</span>
+                                <button type="button" id="gcal-connect-btn" class="btn btn-sm btn-primary"
+                                    disabled>Google と接続</button>
+                                <button type="button" id="gcal-refresh-btn" class="btn btn-sm btn-outline-secondary"
+                                    style="display:none;">更新</button>
+                                <a href="https://calendar.google.com/calendar/u/0/r" target="_blank" rel="noopener"
+                                    class="btn btn-sm btn-outline-primary" id="gcal-open-full">通常のカレンダーを開く ↗</a>
+                            </div>
+                        </div>
+                        <div class="progress mb-3" id="gcal-progress" style="height: 6px; display:none;">
+                            <div id="gcal-progress-bar" class="progress-bar bg-success" role="progressbar"
+                                style="width: 0%;" aria-label="予定の消化"></div>
+                        </div>
+                        <ul id="gcal-event-list" class="list-group list-group-flush"></ul>
+                        <p id="gcal-status" class="text-muted small mb-0 py-3 text-center">
+                            設定「Googleカレンダー連携」に OAuth クライアント ID を入れて「Google と接続」を押すと、
+                            今日の予定がチェックリストで表示されます。チェックするとカレンダー上の予定がグレーアウト（完了）になります。
+                        </p>
+                    </div>
+                </div>
+
                 <!-- タイマー音 (常時表示) -->
                 <div class="card mb-3">
                     <div class="card-body py-2">
@@ -226,39 +253,7 @@
                 </div>
             </div>
         </div>
-
-        <!-- 今日の予定エリア (Calendar API・チェックで予定をグレーアウト・本文最下部) -->
-        <div class="row g-3 mt-1">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-body">
-                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-                            <h5 class="card-title mb-0">今日の予定</h5>
-                            <div class="d-flex flex-wrap align-items-center gap-2">
-                                <span id="gcal-progress-label" class="badge bg-secondary" style="display:none;">0 / 0</span>
-                                <button type="button" id="gcal-connect-btn" class="btn btn-sm btn-primary"
-                                    disabled>Google と接続</button>
-                                <button type="button" id="gcal-refresh-btn" class="btn btn-sm btn-outline-secondary"
-                                    style="display:none;">更新</button>
-                                <a href="https://calendar.google.com/calendar/u/0/r" target="_blank" rel="noopener"
-                                    class="btn btn-sm btn-outline-primary" id="gcal-open-full">通常のカレンダーを開く ↗</a>
-                            </div>
-                        </div>
-                        <div class="progress mb-3" id="gcal-progress" style="height: 6px; display:none;">
-                            <div id="gcal-progress-bar" class="progress-bar bg-success" role="progressbar"
-                                style="width: 0%;" aria-label="予定の消化"></div>
-                        </div>
-                        <ul id="gcal-event-list" class="list-group list-group-flush"></ul>
-                        <p id="gcal-status" class="text-muted small mb-0 py-3 text-center">
-                            設定「Googleカレンダー連携」に OAuth クライアント ID を入れて「Google と接続」を押すと、
-                            今日の予定がチェックリストで表示されます。チェックするとカレンダー上の予定がグレーアウト（完了）になります。
-                        </p>
-                    </div>
-                </div>
-            </div>
-        </div>
     </div>
-
 
     <!-- 拡張機能インストール案内モーダル (未インストール時のみ JS 側から表示) -->
     <div class="modal fade" id="extInstallModal" tabindex="-1" aria-labelledby="extInstallModalLabel" aria-hidden="true">
