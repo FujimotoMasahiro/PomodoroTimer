@@ -809,10 +809,26 @@ function updateActiveSourceDisplay() {
     }
 }
 
+// 選んでいる音源に関係する設定だけを見せる。
+// 作業中 / 休憩中のどちらかで選ばれていれば表示 (両方見比べる必要があるため)。
+// BGM と「音なし」は設定項目を持たないので、何も選ばれていなければ全部畳まれる。
+function updateSourceSettingVisibility() {
+    const selected = new Set([
+        workSourceSelect ? workSourceSelect.value : '',
+        breakSourceSelect ? breakSourceSelect.value : '',
+    ]);
+    document.querySelectorAll('.source-setting').forEach((el) => {
+        el.style.display = selected.has(el.dataset.source) ? '' : 'none';
+    });
+}
+
 function onSourceSettingChange() {
     saveAudioSourceSettings();
+    updateSourceSettingVisibility();
     updateActiveSourceDisplay();
 }
+
+updateSourceSettingVisibility();
 
 if (workSourceSelect) workSourceSelect.addEventListener('change', onSourceSettingChange);
 if (breakSourceSelect) breakSourceSelect.addEventListener('change', onSourceSettingChange);

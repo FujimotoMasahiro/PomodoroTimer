@@ -7,6 +7,8 @@ const VALID_ID = 'dQw4w9WgXcQ';
 test.describe('YouTube 再生リスト UI', () => {
   test.beforeEach(async ({ page }) => {
     await gotoApp(page);
+    // 設定は選んでいる音源の分だけ出るので、YouTube を選んでから一覧を触る
+    await page.selectOption('#work-source', 'youtube');
   });
 
   test('初期は空欄が 1 行だけ', async ({ page }) => {
@@ -95,6 +97,8 @@ async function readAudioSettings(page) {
 test.describe('勉強/作業モードのフラグとチェックボックス', () => {
   test.beforeEach(async ({ page }) => {
     await gotoApp(page);
+    // 設定は選んでいる音源の分だけ出るので、YouTube を選んでから一覧を触る
+    await page.selectOption('#work-source', 'youtube');
   });
 
   test('各行に勉強用チェックボックスが表示される', async ({ page }) => {
@@ -153,6 +157,8 @@ test.describe('勉強/作業モードのフラグとチェックボックス', (
 test.describe('モードによる一覧フィルタリング', () => {
   test.beforeEach(async ({ page }) => {
     await gotoApp(page);
+    // 設定は選んでいる音源の分だけ出るので、YouTube を選んでから一覧を触る
+    await page.selectOption('#work-source', 'youtube');
   });
 
   test('作業モードはチェック済み(勉強)動画を一覧から隠し、勉強モードで表示する', async ({ page }) => {

@@ -66,14 +66,20 @@ test.describe('ローカルファイル: 設定 UI', () => {
 
   test('ファイルが無いうちは案内文が出る', async ({ page }) => {
     await gotoApp(page);
+    await page.selectOption('#work-source', 'local');
     await expect(page.locator('#local-file-list')).toContainText('まだファイルがありません');
   });
 });
 
 // ---------------------------------------------------------------------------
 test.describe('ローカルファイル: 一覧の管理', () => {
-  test('複数ファイルを追加すると順番付きで一覧に並ぶ', async ({ page }) => {
+  // 設定は選んでいる音源の分だけ出るので、ローカルを選んでから一覧を触る
+  test.beforeEach(async ({ page }) => {
     await gotoApp(page);
+    await page.selectOption('#work-source', 'local');
+  });
+
+  test('複数ファイルを追加すると順番付きで一覧に並ぶ', async ({ page }) => {
     await page.locator('#local-file-input').setInputFiles([AUDIO_FILE, VIDEO_FILE]);
 
     await expect(rows(page)).toHaveCount(2);
@@ -84,7 +90,6 @@ test.describe('ローカルファイル: 一覧の管理', () => {
   });
 
   test('音源と動画を種別バッジで見分けられる', async ({ page }) => {
-    await gotoApp(page);
     await page.locator('#local-file-input').setInputFiles([AUDIO_FILE, VIDEO_FILE]);
 
     await expect(rows(page).nth(0)).toContainText('音源');
@@ -92,7 +97,6 @@ test.describe('ローカルファイル: 一覧の管理', () => {
   });
 
   test('行ごとに削除できる', async ({ page }) => {
-    await gotoApp(page);
     await page.locator('#local-file-input').setInputFiles([AUDIO_FILE, AUDIO_FILE_2, VIDEO_FILE]);
     await expect(rows(page)).toHaveCount(3);
 
@@ -103,7 +107,6 @@ test.describe('ローカルファイル: 一覧の管理', () => {
   });
 
   test('「すべて削除」で空になる', async ({ page }) => {
-    await gotoApp(page);
     await page.locator('#local-file-input').setInputFiles([AUDIO_FILE, VIDEO_FILE]);
     await expect(rows(page)).toHaveCount(2);
 
@@ -114,7 +117,6 @@ test.describe('ローカルファイル: 一覧の管理', () => {
   });
 
   test('ハンドルを保存できない経路では、その旨を伝える', async ({ page }) => {
-    await gotoApp(page);
     await page.locator('#local-file-input').setInputFiles([AUDIO_FILE]);
     await expect(page.locator('#local-file-note')).toContainText('次回まで覚えられません');
   });

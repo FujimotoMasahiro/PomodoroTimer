@@ -33,11 +33,13 @@ async function gotoWithFakeYT(page, opts = {}) {
   });
 
   // 設定はアコーディオンで既定は畳まれている。この spec は設定内の入力を直接操作するため開いておく。
+  // YouTube 一覧も「YouTube を選んでいるとき」しか出ないので、音源設定も seed する。
   const seed = {
     ...ls,
     pomodoro_yt_ext_dismissed: 'true',
     pomodoro_sidebar_panels: JSON.stringify({ today: true, settings: true }),
   };
+  if (!seed[AUDIO_KEY]) seed[AUDIO_KEY] = JSON.stringify({ workSource: 'youtube' });
   await page.addInitScript((entries) => {
     try { for (const [k, v] of Object.entries(entries)) localStorage.setItem(k, v); } catch (_) {}
   }, seed);
@@ -315,6 +317,8 @@ test.describe('探索: 空キュー→対象復活のリカバリ', () => {
         localStorage.setItem('pomodoro_yt_ext_dismissed','true');
         // 設定アコーディオンを開いた状態から始める (既定は畳まれている)
         localStorage.setItem('pomodoro_sidebar_panels', JSON.stringify({ today: true, settings: true }));
+        // YouTube 一覧は YouTube を選んでいるときだけ出る
+        localStorage.setItem('pomodoro_audio_source_settings', JSON.stringify({ workSource: 'youtube' }));
       } catch(_){}
     });
     await page.addInitScript(() => {
