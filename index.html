@@ -32,7 +32,9 @@
 
         /* YouTube 動画は列幅いっぱい・16:9。高さは画面に収まる範囲で最大化。
            sticky タイマーの高さぶんを引いて、動画全体が画面に収まりやすくする */
-        #youtubeContainer { width: 100%; aspect-ratio: 16 / 9; max-height: 70vh; }
+        #youtubeContainer,
+        #localVideoContainer { width: 100%; aspect-ratio: 16 / 9; max-height: 70vh; }
+        #localVideoContainer video { width: 100%; height: 100%; display: block; background: #000; }
         #youtubeContainer iframe {
             width: 100% !important;
             height: 100% !important;
@@ -105,6 +107,15 @@
                         <div id="youtubeWrapper" class="active-source-content" style="display:none;">
                             <div id="youtubeContainer"></div>
                             <p class="text-muted small mb-0 mt-2">URL を変更したい場合は右の「YouTube URL」欄から。</p>
+                        </div>
+                        <div id="localWrapper" class="active-source-content" style="display:none;">
+                            <audio id="localAudioPlayer" controls class="w-100" style="display:none;"></audio>
+                            <div id="localVideoContainer" style="display:none;">
+                                <video id="localVideoPlayer" controls playsinline></video>
+                            </div>
+                            <p id="local-now-playing" class="text-muted small mb-0 mt-2">
+                                設定の「ローカルファイル」からファイルを追加してください。
+                            </p>
                         </div>
                         <div id="noneWrapper" class="active-source-content" style="display:none;">
                             <p class="text-muted mb-0 py-3 text-center">音源は使用されていません</p>
@@ -179,6 +190,7 @@
                                         <option value="bgm">BGM (Novoice.mp3)</option>
                                         <option value="voicy">Voicy</option>
                                         <option value="youtube">YouTube</option>
+                                        <option value="local">ローカルファイル (音源・動画)</option>
                                         <option value="none">音なし</option>
                                     </select>
                                 </div>
@@ -188,6 +200,7 @@
                                         <option value="bgm">BGM (Drifting Clouds.mp3)</option>
                                         <option value="voicy">Voicy</option>
                                         <option value="youtube">YouTube</option>
+                                        <option value="local">ローカルファイル (音源・動画)</option>
                                         <option value="none">音なし</option>
                                     </select>
                                 </div>
@@ -214,6 +227,26 @@
                                         勉強モードはチェック済み、作業モードは未チェックの動画だけを上から順に再生します。
                                         URL を入力すると新しい入力欄が自動で追加されます。
                                     </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label d-block">ローカルファイル (音源・動画)</label>
+                                    <div class="d-flex flex-wrap gap-2 mb-2">
+                                        <button type="button" id="local-add-btn"
+                                            class="btn btn-sm btn-outline-primary">ファイルを追加</button>
+                                        <button type="button" id="local-grant-btn" class="btn btn-sm btn-warning"
+                                            style="display:none;">読み込みを許可</button>
+                                        <button type="button" id="local-clear-btn"
+                                            class="btn btn-sm btn-outline-danger">すべて削除</button>
+                                    </div>
+                                    <input type="file" id="local-file-input" class="d-none" multiple
+                                        accept="audio/*,video/*">
+                                    <div id="local-file-list"></div>
+                                    <div class="form-text" id="local-file-help">
+                                        上から順に再生し、1 本終わるたびにその行を一番下へ回します（ロケットえんぴつ式）。
+                                        並び順はドラッグで入れ替えられます。
+                                    </div>
+                                    <div class="form-text" id="local-file-note"></div>
                                 </div>
 
                                 <hr>

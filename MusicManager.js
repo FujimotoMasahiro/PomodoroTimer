@@ -516,3 +516,164 @@ export class YouTubeManager {
         this.pause();
     }
 }
+
+
+/**
+ * LocalMediaManager クラス
+ *
+ * ローカルの音源 / 動画ファイルを再生キューとして扱う。
+ *
+ * ブラウザは「パス文字列」からローカルファイルを読めないため、ファイルの実体は
+ * 外部（コントローラ側）から resolveFile(id) で受け取る。ここではキューの位置管理と
+ * <audio>/<video> の出し分け・再生だけを担う。
+ *
+ * 再生の進み方は「ロケットえんぴつ式」= 常にキューの先頭を再生し、1 本終わるたびに
+ * その項目を末尾へ回す。実際の並び替えは onEnded を受けたコントローラが行い、
+ * 新しい順序で play() を呼び直す。
+ */
+export class LocalMediaManager {
+    /**
+     * @param {object} els { audio: HTMLAudioElement, video: HTMLVideoElement, videoContainer: HTMLElement }
+     * @param {object} options { resolveFile(id): Promise<File|null>, onEnded(id), onError(id, message) }
+     */
+    constructor(els = {}, options = {}) {
+        this.audioEl = els.audio || null;
+        this.videoEl = els.video || null;
+        this.videoContainer = els.videoContainer || null;
+        this.resolveFile = typeof options.resolveFile === 'function' ? options.resolveFile : null;
+        this.onEnded = typeof options.onEnded === 'function' ? options.onEnded : null;
+        this.onError = typeof options.onError === 'function' ? options.onError : null;
+
+        // 現在再生中の項目 id と、そのために作った ObjectURL（解放用に持つ）
+        this.currentId = null;
+        this._objectUrl = null;
+        // play() の多重実行で ObjectURL が入れ違いになるのを防ぐ世代番号
+        this._loadSeq = 0;
+
+        [this.audioEl, this.videoEl].forEach((el) => {
+            if (!el) return;
+            // BGM と同じく、再生速度を変える拡張機能に引きずられないよう等速へ固定する
+            this._lockPlaybackRate(el);
+            el.addEventListener('ended', () => this._handleEnded(el));
+        });
+    }
+
+    _lockPlaybackRate(el) {
+        const enforce = () => {
+            try {
+                if ('preservesPitch' in el) el.preservesPitch = true;
+                if (el.playbackRate !== 1) el.playbackRate = 1;
+            } catch (_) { /* 未対応環境は無視 */ }
+        };
+        enforce();
+        el.addEventListener('ratechange', enforce);
+    }
+
+    _handleEnded(el) {
+        // 表示していない方の要素の ended は無視する
+        if (this._activeEl() !== el) return;
+        const endedId = this.currentId;
+        if (this.onEnded && endedId) {
+            try { this.onEnded(endedId); } catch (_) { /* UI 側のエラーは握りつぶす */ }
+        }
+    }
+
+    _activeEl() {
+        if (!this.currentId) return null;
+        return this._usingVideo ? this.videoEl : this.audioEl;
+    }
+
+    // ファイル名 / MIME から動画かどうかを判定する。
+    // MIME が空のこともある（拡張子だけで判断せざるを得ない環境）ため両方見る。
+    static isVideoFile(name, type) {
+        if (typeof type === 'string' && type.startsWith('video/')) return true;
+        if (typeof type === 'string' && type.startsWith('audio/')) return false;
+        return /\.(mp4|m4v|mov|webm|ogv|mkv|avi)$/i.test(String(name || ''));
+    }
+
+    _revokeUrl() {
+        if (this._objectUrl) {
+            try { URL.revokeObjectURL(this._objectUrl); } catch (_) { /* 無視 */ }
+            this._objectUrl = null;
+        }
+    }
+
+    _showElement(useVideo) {
+        this._usingVideo = useVideo;
+        if (this.audioEl) this.audioEl.style.display = useVideo ? 'none' : '';
+        if (this.videoContainer) this.videoContainer.style.display = useVideo ? '' : 'none';
+        else if (this.videoEl) this.videoEl.style.display = useVideo ? '' : 'none';
+    }
+
+    /**
+     * キューの先頭を再生する。
+     * @param {Array<{id:string,name:string}>} items 再生キュー（先頭が再生対象）
+     */
+    async play(items) {
+        const queue = Array.isArray(items) ? items.filter((it) => it && it.id) : [];
+        if (queue.length === 0) { this.stop(); return; }
+
+        const head = queue[0];
+        // 同じファイルを再生中なら、頭出しせずそのまま続ける（キュー編集中の音飛び防止）
+        if (this.currentId === head.id) {
+            const el = this._activeEl();
+            if (el && el.paused) { try { await el.play(); } catch (_) { /* 自動再生拒否は無視 */ } }
+            return;
+        }
+        if (!this.resolveFile) return;
+
+        const seq = ++this._loadSeq;
+        let file = null;
+        try {
+            file = await this.resolveFile(head.id);
+        } catch (_) {
+            file = null;
+        }
+        // 待っている間に別の play() が走っていたら、この結果は捨てる
+        if (seq !== this._loadSeq) return;
+        if (!file) {
+            if (this.onError) {
+                try { this.onError(head.id, 'ファイルを読み込めませんでした'); } catch (_) { /* 無視 */ }
+            }
+            return;
+        }
+
+        const useVideo = LocalMediaManager.isVideoFile(file.name || head.name, file.type);
+        const el = useVideo ? this.videoEl : this.audioEl;
+        if (!el) return;
+
+        // 直前のファイルを止めてから差し替える
+        const prev = this._activeEl();
+        if (prev && prev !== el) { try { prev.pause(); } catch (_) { /* 無視 */ } }
+
+        this._revokeUrl();
+        this._objectUrl = URL.createObjectURL(file);
+        this.currentId = head.id;
+        this._showElement(useVideo);
+        el.src = this._objectUrl;
+        try { el.load(); } catch (_) { /* 無視 */ }
+        try { await el.play(); } catch (_) { /* 自動再生拒否は無視（ユーザー操作後に再開） */ }
+    }
+
+    pause() {
+        const el = this._activeEl();
+        if (el) { try { el.pause(); } catch (_) { /* 無視 */ } }
+    }
+
+    /** 次の play() で先頭から読み直すよう、現在の再生対象を忘れる */
+    resetPosition() {
+        this.currentId = null;
+    }
+
+    /** 再生を止めて要素と ObjectURL を解放する */
+    stop() {
+        [this.audioEl, this.videoEl].forEach((el) => {
+            if (!el) return;
+            try { el.pause(); el.removeAttribute('src'); el.load(); } catch (_) { /* 無視 */ }
+        });
+        this._revokeUrl();
+        this.currentId = null;
+        this._showElement(false);
+        if (this.audioEl) this.audioEl.style.display = 'none';
+    }
+}

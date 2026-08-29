@@ -1,4 +1,4 @@
-import { MusicManager, VoicyManager, YouTubeManager } from "./MusicManager.js";
+import { MusicManager, VoicyManager, YouTubeManager, LocalMediaManager } from "./MusicManager.js";
 
 // 定義 なので、constを用いる
 const STATUS_ENUM = {
@@ -52,7 +52,7 @@ const DEFAULT_VOICY_URL = 'https://voicy.jp/embed/channel/941';
 
 // 音源設定の localStorage 永続化
 const AUDIO_SETTINGS_KEY = 'pomodoro_audio_source_settings';
-const VALID_SOURCES = ['bgm', 'voicy', 'youtube', 'none'];
+const VALID_SOURCES = ['bgm', 'voicy', 'youtube', 'local', 'none'];
 
 function loadAudioSourceSettings() {
     // restoredEntries: { url: string, study: boolean }[]
@@ -367,6 +367,390 @@ function removeYouTubeUrlByVideoId(videoId) {
     saveAudioSourceSettings();
 }
 
+// ----------------------------------------------------------------------------
+// ローカルファイル (音源 / 動画) の再生リスト
+// ----------------------------------------------------------------------------
+// ブラウザは「パス文字列」からローカルファイルを読めない (https のページから
+// file:// は参照できない)。そこでファイルはユーザーに選んでもらい、
+//   - File System Access API がある環境: FileSystemFileHandle を IndexedDB に保存し、
+//     次回起動時は「読み込みを許可」を 1 回押すだけで同じ一覧をそのまま使える。
+//   - 無い環境 (Safari / Firefox 等): <input type="file"> で選んだ File をメモリに持つ。
+//     一覧はリロードで消えるため、その旨を画面に出す。
+// 再生は「ロケットえんぴつ式」: 常にリスト先頭を再生し、終わったらその行を末尾へ回す。
+const LOCAL_DB_NAME = 'pomodoro-local-media';
+const LOCAL_DB_STORE = 'items';
+const LOCAL_DB_VERSION = 1;
+
+const localFileListContainer = document.getElementById('local-file-list');
+const localAddBtn = document.getElementById('local-add-btn');
+const localGrantBtn = document.getElementById('local-grant-btn');
+const localClearBtn = document.getElementById('local-clear-btn');
+const localFileInput = document.getElementById('local-file-input');
+const localFileNote = document.getElementById('local-file-note');
+const localNowPlaying = document.getElementById('local-now-playing');
+
+// 一覧の実体。UI の並び順がそのまま再生順。
+// { id, name, kind: 'audio'|'video', handle: FileSystemFileHandle|null }
+let localItems = [];
+// <input type="file"> 経由で選んだ File (ハンドルを保存できない環境用・メモリのみ)
+const localFileCache = new Map();
+
+const supportsFileSystemAccess = () => typeof window.showOpenFilePicker === 'function';
+
+function newLocalId() {
+    try {
+        if (window.crypto && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    } catch (_) { /* 無視 */ }
+    return `lf-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+// ---- IndexedDB (ハンドルの永続化) ------------------------------------------
+// ハンドルは JSON にできないので localStorage ではなく IndexedDB に置く。
+function openLocalDb() {
+    return new Promise((resolve, reject) => {
+        if (!window.indexedDB) { reject(new Error('no indexedDB')); return; }
+        const req = indexedDB.open(LOCAL_DB_NAME, LOCAL_DB_VERSION);
+        req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains(LOCAL_DB_STORE)) {
+                db.createObjectStore(LOCAL_DB_STORE, { keyPath: 'id' });
+            }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error || new Error('indexedDB open failed'));
+    });
+}
+
+async function readLocalItemsFromDb() {
+    try {
+        const db = await openLocalDb();
+        const rows = await new Promise((resolve, reject) => {
+            const tx = db.transaction(LOCAL_DB_STORE, 'readonly');
+            const req = tx.objectStore(LOCAL_DB_STORE).getAll();
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => reject(req.error);
+        });
+        db.close();
+        return rows
+            .filter((r) => r && r.id)
+            .sort((a, b) => (a.order || 0) - (b.order || 0))
+            .map((r) => ({ id: r.id, name: r.name || '', kind: r.kind === 'video' ? 'video' : 'audio', handle: r.handle || null }));
+    } catch (_) {
+        return [];
+    }
+}
+
+// 一覧をまるごと書き直す。並び順は order で保存する。
+async function writeLocalItemsToDb() {
+    try {
+        const db = await openLocalDb();
+        await new Promise((resolve, reject) => {
+            const tx = db.transaction(LOCAL_DB_STORE, 'readwrite');
+            const store = tx.objectStore(LOCAL_DB_STORE);
+            store.clear();
+            localItems.forEach((it, i) => {
+                // ハンドルを保存できない環境では handle:null のまま入れる
+                // (名前だけ残っても再生できないので、その場合は保存しない)
+                if (!it.handle) return;
+                store.put({ id: it.id, name: it.name, kind: it.kind, order: i, handle: it.handle });
+            });
+            tx.oncomplete = resolve;
+            tx.onerror = () => reject(tx.error);
+        });
+        db.close();
+    } catch (_) { /* 保存できなくても再生自体は続けられる */ }
+}
+
+// ---- ファイルの取り出し ------------------------------------------------------
+// 再生直前に呼ばれる。ハンドルがあれば毎回 getFile() で読み直す
+// (ファイルが差し替えられていても最新が読める)。
+async function resolveLocalFile(id) {
+    const cached = localFileCache.get(id);
+    if (cached) return cached;
+    const item = localItems.find((it) => it.id === id);
+    if (!item || !item.handle) return null;
+    try {
+        const perm = await queryLocalPermission(item.handle);
+        if (perm !== 'granted') { showLocalGrantButton(true); return null; }
+        return await item.handle.getFile();
+    } catch (_) {
+        return null;
+    }
+}
+
+async function queryLocalPermission(handle) {
+    if (!handle || typeof handle.queryPermission !== 'function') return 'granted';
+    try { return await handle.queryPermission({ mode: 'read' }); } catch (_) { return 'denied'; }
+}
+
+// 保存済みハンドルの読み取り許可をまとめて求める (ユーザー操作の中でのみ通る)
+async function requestLocalPermissions() {
+    let ok = true;
+    for (const it of localItems) {
+        if (!it.handle || typeof it.handle.requestPermission !== 'function') continue;
+        try {
+            const res = await it.handle.requestPermission({ mode: 'read' });
+            if (res !== 'granted') ok = false;
+        } catch (_) { ok = false; }
+    }
+    showLocalGrantButton(!ok);
+    if (ok) {
+        setLocalNote('');
+        refreshActiveSourceIfPlaying();
+    } else {
+        setLocalNote('読み込みが許可されなかったファイルがあります。もう一度お試しください。');
+    }
+    return ok;
+}
+
+function showLocalGrantButton(show) {
+    if (localGrantBtn) localGrantBtn.style.display = show ? '' : 'none';
+}
+
+function setLocalNote(msg) {
+    if (!localFileNote) return;
+    localFileNote.textContent = msg || '';
+    localFileNote.style.display = msg ? '' : 'none';
+}
+
+function setLocalNowPlaying(msg) {
+    if (localNowPlaying) localNowPlaying.textContent = msg;
+}
+
+// ---- 一覧 UI ----------------------------------------------------------------
+function renderLocalFileList() {
+    if (!localFileListContainer) return;
+    localFileListContainer.innerHTML = '';
+
+    if (localItems.length === 0) {
+        const p = document.createElement('p');
+        p.className = 'text-muted small mb-0';
+        p.textContent = 'まだファイルがありません。「ファイルを追加」から選んでください。';
+        localFileListContainer.appendChild(p);
+        updateLocalNowPlayingLabel();
+        return;
+    }
+
+    localItems.forEach((item, i) => {
+        const row = document.createElement('div');
+        row.className = 'local-file-row d-flex align-items-center gap-2 mb-1';
+        row.draggable = true;
+        row.dataset.id = item.id;
+
+        const handle = document.createElement('span');
+        handle.className = 'drag-handle text-muted';
+        handle.textContent = '⋮⋮';
+        handle.title = 'ドラッグで並び替え';
+
+        const order = document.createElement('span');
+        order.className = 'badge bg-secondary flex-shrink-0';
+        order.textContent = String(i + 1);
+
+        const name = document.createElement('span');
+        name.className = 'flex-grow-1 text-truncate small';
+        name.textContent = item.name;
+        name.title = item.name;
+
+        const kind = document.createElement('span');
+        kind.className = 'badge bg-light text-dark flex-shrink-0';
+        kind.textContent = item.kind === 'video' ? '動画' : '音源';
+
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'btn btn-sm btn-outline-danger flex-shrink-0';
+        del.textContent = '削除';
+        del.addEventListener('click', () => removeLocalItem(item.id));
+
+        row.append(handle, order, name, kind, del);
+        localFileListContainer.appendChild(row);
+    });
+    updateLocalNowPlayingLabel();
+}
+
+function updateLocalNowPlayingLabel() {
+    if (localItems.length === 0) {
+        setLocalNowPlaying('設定の「ローカルファイル」からファイルを追加してください。');
+        return;
+    }
+    setLocalNowPlaying(`再生中: ${localItems[0].name}（終わると一番下へ回ります）`);
+}
+
+// ドラッグ並び替え (YouTube 一覧と同じ操作感)
+if (localFileListContainer) {
+    localFileListContainer.addEventListener('dragstart', (e) => {
+        const row = e.target.closest('.local-file-row');
+        if (!row) return;
+        row.classList.add('dragging');
+    });
+    localFileListContainer.addEventListener('dragend', (e) => {
+        const row = e.target.closest('.local-file-row');
+        if (!row) return;
+        row.classList.remove('dragging');
+        syncLocalItemsFromDom();
+    });
+    localFileListContainer.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        const dragging = localFileListContainer.querySelector('.local-file-row.dragging');
+        if (!dragging) return;
+        const after = getLocalDragAfterElement(localFileListContainer, e.clientY);
+        if (after == null) localFileListContainer.appendChild(dragging);
+        else localFileListContainer.insertBefore(dragging, after);
+    });
+}
+
+function getLocalDragAfterElement(container, y) {
+    const rows = [...container.querySelectorAll('.local-file-row:not(.dragging)')];
+    return rows.reduce((closest, row) => {
+        const box = row.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > closest.offset) return { offset, element: row };
+        return closest;
+    }, { offset: -Infinity, element: null }).element;
+}
+
+// DOM の並びを localItems に反映して保存・再生へ反映する
+function syncLocalItemsFromDom() {
+    if (!localFileListContainer) return;
+    const ids = [...localFileListContainer.querySelectorAll('.local-file-row')].map((r) => r.dataset.id);
+    const byId = new Map(localItems.map((it) => [it.id, it]));
+    const next = ids.map((id) => byId.get(id)).filter(Boolean);
+    if (next.length !== localItems.length) return;
+    localItems = next;
+    renderLocalFileList();
+    writeLocalItemsToDb();
+    refreshActiveSourceIfPlaying();
+}
+
+// ---- 追加 / 削除 -------------------------------------------------------------
+async function addLocalFilesViaPicker() {
+    try {
+        const handles = await window.showOpenFilePicker({
+            multiple: true,
+            types: [{
+                description: '音源・動画',
+                accept: {
+                    'audio/*': ['.mp3', '.m4a', '.aac', '.wav', '.ogg', '.flac'],
+                    'video/*': ['.mp4', '.m4v', '.mov', '.webm', '.mkv'],
+                },
+            }],
+        });
+        for (const handle of handles) {
+            let file = null;
+            try { file = await handle.getFile(); } catch (_) { /* 無視 */ }
+            const name = (file && file.name) || handle.name || '';
+            const kind = LocalMediaManager.isVideoFile(name, file && file.type) ? 'video' : 'audio';
+            localItems.push({ id: newLocalId(), name, kind, handle });
+        }
+        setLocalNote('');
+        renderLocalFileList();
+        await writeLocalItemsToDb();
+        refreshActiveSourceIfPlaying();
+    } catch (_) {
+        // ユーザーがキャンセルした場合もここに来る。何もしない。
+    }
+}
+
+function addLocalFilesFromInput(files) {
+    const list = [...(files || [])];
+    if (list.length === 0) return;
+    list.forEach((file) => {
+        const id = newLocalId();
+        const kind = LocalMediaManager.isVideoFile(file.name, file.type) ? 'video' : 'audio';
+        localFileCache.set(id, file);
+        localItems.push({ id, name: file.name, kind, handle: null });
+    });
+    // ハンドルを保存できない経路なので、リロードで消えることを伝える
+    setLocalNote('このブラウザでは選んだファイルを次回まで覚えられません。リロードすると選び直しになります。');
+    renderLocalFileList();
+    refreshActiveSourceIfPlaying();
+}
+
+function removeLocalItem(id) {
+    const before = localItems.length;
+    localItems = localItems.filter((it) => it.id !== id);
+    localFileCache.delete(id);
+    if (localItems.length === before) return;
+    renderLocalFileList();
+    writeLocalItemsToDb();
+    refreshActiveSourceIfPlaying();
+}
+
+function clearLocalItems() {
+    localItems = [];
+    localFileCache.clear();
+    LOCAL_MANAGER.stop();
+    setLocalNote('');
+    showLocalGrantButton(false);
+    renderLocalFileList();
+    writeLocalItemsToDb();
+    refreshActiveSourceIfPlaying();
+}
+
+// ---- 再生キュー / ロケットえんぴつ -------------------------------------------
+function getLocalQueue() {
+    return localItems.map((it) => ({ id: it.id, name: it.name }));
+}
+
+function localQueueIds() {
+    return localItems.map((it) => it.id);
+}
+
+// 1 本再生し終わったら、その行を一番下へ回して次を再生する。
+function rotateLocalItemToEnd(id) {
+    const idx = localItems.findIndex((it) => it.id === id);
+    if (idx === -1) return;
+    const [item] = localItems.splice(idx, 1);
+    localItems.push(item);
+    renderLocalFileList();
+    writeLocalItemsToDb();
+    // 並びが変わった = sourceKey が変わるので、再生中なら新しい先頭へ進む
+    refreshActiveSourceIfPlaying();
+}
+
+const LOCAL_MANAGER = new LocalMediaManager(
+    {
+        audio: document.getElementById('localAudioPlayer'),
+        video: document.getElementById('localVideoPlayer'),
+        videoContainer: document.getElementById('localVideoContainer'),
+    },
+    {
+        resolveFile: resolveLocalFile,
+        onEnded: (id) => rotateLocalItemToEnd(id),
+        onError: (_id, message) => setLocalNote(message),
+    }
+);
+
+if (localAddBtn) {
+    localAddBtn.addEventListener('click', () => {
+        if (supportsFileSystemAccess()) addLocalFilesViaPicker();
+        else if (localFileInput) localFileInput.click();
+    });
+}
+if (localFileInput) {
+    localFileInput.addEventListener('change', () => {
+        addLocalFilesFromInput(localFileInput.files);
+        localFileInput.value = '';
+    });
+}
+if (localGrantBtn) localGrantBtn.addEventListener('click', () => requestLocalPermissions());
+if (localClearBtn) localClearBtn.addEventListener('click', () => clearLocalItems());
+
+// 起動時: 保存済みハンドルを読み戻す。許可が切れていれば「読み込みを許可」を出す。
+async function initLocalMediaList() {
+    localItems = await readLocalItemsFromDb();
+    renderLocalFileList();
+    if (localItems.length === 0) return;
+    let needGrant = false;
+    for (const it of localItems) {
+        if (!it.handle) continue;
+        if (await queryLocalPermission(it.handle) !== 'granted') { needGrant = true; break; }
+    }
+    showLocalGrantButton(needGrant);
+    if (needGrant) setLocalNote('前回のファイルを読み込むには「読み込みを許可」を押してください。');
+}
+initLocalMediaList();
+
+
 loadAudioSourceSettings();
 
 // アクティブ音源カードの表示要素
@@ -377,6 +761,7 @@ const sourceWrappers = {
     bgmBreak: document.getElementById('breakBgmWrapper'),
     voicy: document.getElementById('voicyWrapper'),
     youtube: document.getElementById('youtubeWrapper'),
+    local: document.getElementById('localWrapper'),
     none: document.getElementById('noneWrapper'),
 };
 
@@ -398,6 +783,7 @@ function updateActiveSourceDisplay() {
     let activeKey, label;
     if (sourceValue === 'voicy') { activeKey = 'voicy'; label = 'Voicy'; }
     else if (sourceValue === 'youtube') { activeKey = 'youtube'; label = 'YouTube'; }
+    else if (sourceValue === 'local') { activeKey = 'local'; label = 'ローカルファイル'; }
     else if (sourceValue === 'none') { activeKey = 'none'; label = '音なし'; }
     else if (phase === 'break') { activeKey = 'bgmBreak'; label = '休憩中BGM'; }
     else { activeKey = 'bgmWork'; label = '作業中BGM'; }
@@ -480,6 +866,9 @@ function sourceKeyFor(phase) {
     if (v === 'bgm')     return phase === 'break' ? 'bgm-break' : 'bgm-work';
     if (v === 'voicy')   return `voicy:${getVoicyUrl()}`;
     if (v === 'youtube') return `youtube:${youtubeQueueIds().join(',')}`;
+    // ローカルは並び順そのものが再生順なので、順序が変われば key も変わる
+    // (= ロケットえんぴつで next へ進む)
+    if (v === 'local')   return `local:${localQueueIds().join(',')}`;
     return 'none';
 }
 
@@ -495,6 +884,13 @@ function startSource(key) {
         if (urls.length) YOUTUBE_MANAGER.play(urls);
         else YOUTUBE_MANAGER.pause();
     }
+    else if (key.startsWith('local:')) {
+        // 常にリスト先頭を再生する。空なら何も鳴らさない。
+        const queue = getLocalQueue();
+        if (queue.length) LOCAL_MANAGER.play(queue);
+        else LOCAL_MANAGER.pause();
+        updateLocalNowPlayingLabel();
+    }
 }
 
 function stopSource(key) {
@@ -503,6 +899,7 @@ function stopSource(key) {
     else if (key === 'bgm-break')        MUSIC_MANAGER3.stop();
     else if (key.startsWith('voicy:'))   VOICY_MANAGER.destroy();  // iframe を DOM から削除
     else if (key.startsWith('youtube:')) YOUTUBE_MANAGER.pause();  // iframe は保持し pauseVideo()
+    else if (key.startsWith('local:'))   LOCAL_MANAGER.pause();    // 要素は保持し pause()
 }
 
 function setActiveSource(phase) {
@@ -1577,6 +1974,14 @@ initSidebarPanels();
 // テスト用フック: 実 OAuth / 通信なしで描画・チェック永続化を検証できるようにする。
 // (本番動作には不要だが、外部依存をブロックする QA 環境で UI を検証するため)
 window.PomodoroTimer = window.PomodoroTimer || {};
+// ローカル再生の内部状態を覗くフック (ヘッドレスでは実再生ができないため)
+window.PomodoroTimer.__localState = function () {
+    return {
+        currentId: LOCAL_MANAGER.currentId,
+        usingVideo: !!LOCAL_MANAGER._usingVideo,
+        queueIds: localQueueIds(),
+    };
+};
 window.PomodoroTimer.__setGcalEvents = function (events) {
     gcalEvents = Array.isArray(events) ? events : [];
     renderGcalEvents();
