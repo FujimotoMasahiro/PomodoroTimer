@@ -1054,6 +1054,10 @@ const GCAL_DONE_COLOR = '8';
 const GCAL_CONNECTED_KEY = 'pomodoro_gcal_connected';
 // グレーにする前の元の色を保存するキー (リロードしても元色を失わないため)
 const GCAL_ORIG_COLOR_KEY = 'pomodoro_gcal_orig_colors';
+// カレンダー側で色を変えられない予定 (Google Contacts 由来の誕生日など) を
+// この画面だけで完了として覚えるキー。events.patch が 400 eventTypeRestriction を
+// 返す予定が該当する。
+const GCAL_LOCAL_DONE_KEY = 'pomodoro_gcal_local_done';
 // 連携したアカウントのメール。無言再認証の login_hint に使う
 const GCAL_ACCOUNT_KEY = 'pomodoro_gcal_account';
 // アクセストークンのキャッシュ ({ token, expiresAt })。期限内は再取得しない
@@ -1075,6 +1079,8 @@ let gcalAccessToken = null;        // メモリのみ (永続化しない)
 let gcalEvents = [];               // 今日の予定 [{ id, title, allDay, start, colorId }]
 // チェックを外したときに復元するため、グレーにする前の色を覚えておく (localStorage 永続)
 const gcalOrigColor = loadGcalOrigColors();
+// カレンダーへ書き戻せない予定の完了を、この画面だけで覚える (localStorage 永続)
+const gcalLocalDone = loadGcalLocalDone();
 // 接続処理の状態管理
 let gcalConnectMode = 'manual';    // 'auto'=起動時の無言復元 / 'manual'=ボタン操作
 let gcalAuthInFlight = false;      // 多重の再認証要求を防ぐ
@@ -1156,6 +1162,19 @@ function saveGcalOrigColors(map) {
     try { localStorage.setItem(GCAL_ORIG_COLOR_KEY, JSON.stringify(Object.fromEntries(map))); } catch (_) { /* 無視 */ }
 }
 
+// カレンダー側の色を変えられない予定 (誕生日など) の「この画面だけの完了」を出し入れする。
+function loadGcalLocalDone() {
+    try {
+        const arr = JSON.parse(localStorage.getItem(GCAL_LOCAL_DONE_KEY) || '[]');
+        return new Set(Array.isArray(arr) ? arr.filter((v) => typeof v === 'string') : []);
+    } catch (_) { return new Set(); }
+}
+function saveGcalLocalDone() {
+    try {
+        localStorage.setItem(GCAL_LOCAL_DONE_KEY, JSON.stringify([...gcalLocalDone]));
+    } catch (_) { /* 無視 */ }
+}
+
 // 認証に失敗/期限切れしたときの後始末。接続ボタンを再表示して手動接続へ誘導する。
 // 接続済みフラグは消さない: 手動接続は常に対話モードなので消す必要がなく、
 // 消すと「無言取得が使える環境」で次回以降の自動復元まで止めてしまうため。
@@ -1168,8 +1187,11 @@ function onGcalAuthFailure(msg) {
 }
 
 // 予定が「完了(グレーアウト済み)」かは色で判定する
+// 予定が「完了」かは色で判定する。ただし色を変えられない予定 (誕生日など) は
+// カレンダー側がグレーにならないので、この画面で覚えた完了も見る。
 function isEventDone(ev) {
-    return !!ev && ev.colorId === GCAL_DONE_COLOR;
+    if (!ev) return false;
+    return ev.colorId === GCAL_DONE_COLOR || gcalLocalDone.has(ev.id);
 }
 
 function setGcalStatus(msg) {
@@ -1327,6 +1349,14 @@ async function fetchTodayEvents() {
             start: (ev.start && (ev.start.dateTime || ev.start.date)) || '',
             colorId: ev.colorId || '',
         }));
+        // 今日の予定に無い id は捨てる (前日までの分が溜まらないようにする)
+        const todayIds = new Set(gcalEvents.map((e) => e.id));
+        let pruned = false;
+        for (const id of gcalLocalDone) {
+            if (!todayIds.has(id)) { gcalLocalDone.delete(id); pruned = true; }
+        }
+        if (pruned) saveGcalLocalDone();
+
         renderGcalEvents();
     } catch (_) {
         setGcalStatus('予定の取得中にエラーが発生しました。通信状況をご確認ください。');
@@ -1355,6 +1385,17 @@ function updateGcalProgress() {
     }
 }
 
+// events.patch の 400 が「この種類の予定は変更できない」ものかを見分ける。
+// 例: Google Contacts の誕生日は colorId を変えられず reason=eventTypeRestriction が返る。
+// それ以外の 400 (リクエスト不正など) は本物の失敗として扱いたいので区別する。
+async function isEventTypeRestriction(res) {
+    try {
+        const data = await res.json();
+        const errors = (data && data.error && data.error.errors) || [];
+        return errors.some((e) => e && e.reason === 'eventTypeRestriction');
+    } catch (_) { return false; }
+}
+
 // 予定の colorId を Google カレンダーへ書き換える。done=true でグレー、
 // false で元の色へ戻す (元が既定色なら colorId を空にして既定へ)。成功で true。
 async function patchEventColor(ev, done) {
@@ -1376,7 +1417,19 @@ async function patchEventColor(ev, done) {
             body: JSON.stringify(body),
         });
         if (res.status === 401) { refreshGcalTokenSilently(); return false; }
+        // Google Contacts 由来の誕生日など、種類の都合で色を変えられない予定。
+        // カレンダーには書き戻せないので、この画面だけで完了として覚える。
+        if (res.status === 400 && await isEventTypeRestriction(res)) {
+            if (done) gcalLocalDone.add(ev.id); else gcalLocalDone.delete(ev.id);
+            saveGcalLocalDone();
+            setGcalStatus(done
+                ? 'この予定はカレンダー側で色を変更できないため (誕生日など)、この画面でのみ完了にしました。'
+                : 'この予定はカレンダー側で色を変更できないため (誕生日など)、この画面での完了を取り消しました。');
+            return true;
+        }
         if (!res.ok) { setGcalStatus(`カレンダーへの反映に失敗しました (HTTP ${res.status})。`); return false; }
+        // 通常の予定は色で完了を持つので、画面だけの完了は持ち越さない
+        if (!done && gcalLocalDone.delete(ev.id)) saveGcalLocalDone();
         return true;
     } catch (_) {
         setGcalStatus('カレンダーへの反映中にエラーが発生しました。');
@@ -1442,14 +1495,16 @@ function renderGcalEvents() {
             cb.disabled = false;
             if (!ok) {
                 ev.colorId = prevColor;
-                cb.checked = isEventDone(ev);
-                applyDoneStyle();
-                updateGcalProgress();
             } else if (!want) {
                 // 元の色へ戻せたので控えを破棄する
                 gcalOrigColor.delete(ev.id);
                 saveGcalOrigColors(gcalOrigColor);
             }
+            // 完了かどうかは書き戻しの結果で決まる (色を変えられない予定は画面だけの
+            // 完了になる) ので、確定してからもう一度そろえる。
+            cb.checked = isEventDone(ev);
+            applyDoneStyle();
+            updateGcalProgress();
         });
 
         li.append(cb, time, title);
