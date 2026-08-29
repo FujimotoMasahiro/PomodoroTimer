@@ -1471,6 +1471,54 @@ refreshGcalButtons();
 // 過去に接続済みなら、ページを開いた時点で無言で再接続を試みる (ボタン押下不要)
 autoConnectGcalIfPossible();
 
+// ---------------------------------------------------------------------------
+// サイドバーのアコーディオン (今日の予定 / 設定) の開閉状態を localStorage に覚える。
+// 既定は「今日の予定=開く / 設定=畳む」= ページを開いた瞬間に予定が目に入る状態。
+// 一度ユーザーが開閉したら次回もその状態で開く。
+const SIDEBAR_PANELS_KEY = 'pomodoro_sidebar_panels';
+const SIDEBAR_PANEL_DEFAULTS = { today: true, settings: false };
+
+function loadSidebarPanels() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(SIDEBAR_PANELS_KEY) || 'null');
+        if (!saved || typeof saved !== 'object') return { ...SIDEBAR_PANEL_DEFAULTS };
+        return {
+            today: typeof saved.today === 'boolean' ? saved.today : SIDEBAR_PANEL_DEFAULTS.today,
+            settings: typeof saved.settings === 'boolean' ? saved.settings : SIDEBAR_PANEL_DEFAULTS.settings,
+        };
+    } catch (_) { return { ...SIDEBAR_PANEL_DEFAULTS }; }
+}
+
+function saveSidebarPanel(name, open) {
+    try {
+        const cur = loadSidebarPanels();
+        cur[name] = !!open;
+        localStorage.setItem(SIDEBAR_PANELS_KEY, JSON.stringify(cur));
+    } catch (_) { /* 無視 */ }
+}
+
+// Bootstrap の Collapse を作る前に class / aria を直接あてる。
+// こうするとアニメーション無しで最初からその状態で描画される (ちらつき防止)。
+function applySidebarPanelState(panel, toggle, open) {
+    if (!panel || !toggle) return;
+    panel.classList.toggle('show', open);
+    toggle.classList.toggle('collapsed', !open);
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function initSidebarPanels() {
+    const state = loadSidebarPanels();
+    [['today', 'panel-today'], ['settings', 'panel-settings']].forEach(([name, id]) => {
+        const panel = document.getElementById(id);
+        const toggle = document.getElementById(id + '-toggle');
+        if (!panel || !toggle) return;
+        applySidebarPanelState(panel, toggle, state[name]);
+        panel.addEventListener('shown.bs.collapse', () => saveSidebarPanel(name, true));
+        panel.addEventListener('hidden.bs.collapse', () => saveSidebarPanel(name, false));
+    });
+}
+initSidebarPanels();
+
 // テスト用フック: 実 OAuth / 通信なしで描画・チェック永続化を検証できるようにする。
 // (本番動作には不要だが、外部依存をブロックする QA 環境で UI を検証するため)
 window.PomodoroTimer = window.PomodoroTimer || {};

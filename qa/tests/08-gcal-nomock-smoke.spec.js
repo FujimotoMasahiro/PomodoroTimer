@@ -36,7 +36,12 @@ async function rawGoto(page, { localStorage: ls = {}, blockGis = true } = {}) {
     return route.continue();
   });
 
-  const seed = { pomodoro_yt_ext_dismissed: 'true', ...ls };
+  // 設定はアコーディオンで既定は畳まれている。client-id 欄を直接触るため開いておく。
+  const seed = {
+    pomodoro_yt_ext_dismissed: 'true',
+    pomodoro_sidebar_panels: JSON.stringify({ today: true, settings: true }),
+    ...ls,
+  };
   await page.addInitScript((entries) => {
     try { for (const [k, v] of Object.entries(entries)) localStorage.setItem(k, v); } catch (_) {}
   }, seed);

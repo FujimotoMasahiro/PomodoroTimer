@@ -32,7 +32,12 @@ async function gotoWithFakeYT(page, opts = {}) {
     return route.continue();
   });
 
-  const seed = { ...ls, pomodoro_yt_ext_dismissed: 'true' };
+  // 設定はアコーディオンで既定は畳まれている。この spec は設定内の入力を直接操作するため開いておく。
+  const seed = {
+    ...ls,
+    pomodoro_yt_ext_dismissed: 'true',
+    pomodoro_sidebar_panels: JSON.stringify({ today: true, settings: true }),
+  };
   await page.addInitScript((entries) => {
     try { for (const [k, v] of Object.entries(entries)) localStorage.setItem(k, v); } catch (_) {}
   }, seed);
@@ -305,7 +310,13 @@ test.describe('探索: 空キュー→対象復活のリカバリ', () => {
       if (/googletagmanager|google-analytics|youtube.com\/iframe_api|img.youtube|i.ytimg|voicy.jp/.test(u)) return route.abort();
       return route.continue();
     });
-    await page.addInitScript(() => { try { localStorage.setItem('pomodoro_yt_ext_dismissed','true'); } catch(_){} });
+    await page.addInitScript(() => {
+      try {
+        localStorage.setItem('pomodoro_yt_ext_dismissed','true');
+        // 設定アコーディオンを開いた状態から始める (既定は畳まれている)
+        localStorage.setItem('pomodoro_sidebar_panels', JSON.stringify({ today: true, settings: true }));
+      } catch(_){}
+    });
     await page.addInitScript(() => {
       window.__ytCalls = [];
       function P(elId, cfg){ this._v=cfg&&cfg.videoId; this._cfg=cfg; window.__ytCalls.push({type:'new',videoId:this._v,start:cfg&&cfg.playerVars&&cfg.playerVars.start}); setTimeout(()=>{try{cfg.events&&cfg.events.onReady&&cfg.events.onReady({target:this});}catch(_){} },0); }
