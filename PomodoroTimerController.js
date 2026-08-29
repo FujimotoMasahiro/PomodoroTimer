@@ -1040,16 +1040,26 @@ window.addEventListener('load', () => {
 // チェック(=完了)すると、その予定の colorId をグラファイト(グレー)に書き換えて
 // Google カレンダー側へ反映する (events.patch)。チェックを外すと元の色へ戻す。
 // 完了かどうかは「色がグレーか」で判定する (= ユーザーのグレーアウト運用に一致)。
-// アクセストークンはメモリ上のみで永続化しない。
+// アクセストークンは有効期限付きで localStorage にキャッシュし、期限内はダイアログも
+// Google への往復も無しで復元する (期限切れ/401 は即破棄して無言で取り直す)。
 const GCAL_CLIENT_ID_KEY = 'pomodoro_gcal_client_id';
-// 予定の色を書き換えるため events の読み書きスコープが必要
-const GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+// 予定の色を書き換えるため events の読み書きスコープが必要。
+// openid/email は「どのアカウントで連携したか」を記憶して無言再認証 (login_hint) に使う。
+// これが無いと、ブラウザに複数の Google アカウントがログインしている環境では
+// prompt:'' の無言取得が account_selection_required で必ず失敗し、毎回アカウント選択が出る。
+const GCAL_SCOPE = 'openid email https://www.googleapis.com/auth/calendar.events';
 // 完了マークに使う色 = Google カレンダーの colorId '8' (Graphite / グレー)
 const GCAL_DONE_COLOR = '8';
 // 過去に接続(同意)済みかの記録キー。次回以降の無言再接続に使う
 const GCAL_CONNECTED_KEY = 'pomodoro_gcal_connected';
 // グレーにする前の元の色を保存するキー (リロードしても元色を失わないため)
 const GCAL_ORIG_COLOR_KEY = 'pomodoro_gcal_orig_colors';
+// 連携したアカウントのメール。無言再認証の login_hint に使う
+const GCAL_ACCOUNT_KEY = 'pomodoro_gcal_account';
+// アクセストークンのキャッシュ ({ token, expiresAt })。期限内は再取得しない
+const GCAL_TOKEN_KEY = 'pomodoro_gcal_token';
+// 期限ぎりぎりで使って 401 になるのを避けるための前倒し (1 分)
+const GCAL_TOKEN_SKEW_MS = 60 * 1000;
 
 const gcalClientIdInput = document.getElementById('gcal-client-id');
 const gcalConnectBtn = document.getElementById('gcal-connect-btn');
@@ -1085,6 +1095,55 @@ function setGcalConnectedFlag(connected) {
     } catch (_) { /* 無視 */ }
 }
 
+// 連携アカウント (メール) の記憶。無言再認証の login_hint に渡すためだけに使う。
+function getGcalAccountHint() {
+    try { return (localStorage.getItem(GCAL_ACCOUNT_KEY) || '').trim(); } catch (_) { return ''; }
+}
+function setGcalAccountHint(email) {
+    try {
+        if (email) localStorage.setItem(GCAL_ACCOUNT_KEY, email);
+        else localStorage.removeItem(GCAL_ACCOUNT_KEY);
+    } catch (_) { /* 無視 */ }
+}
+
+// 接続に使ったアカウントのメールを userinfo から控える (失敗しても連携自体は続行)。
+// force=true (手動接続の成功時) は控え直す: 別アカウントを選び直した可能性があるため。
+async function rememberGcalAccount(token, force) {
+    if (!token) return;
+    if (!force && getGcalAccountHint()) return;   // 既に控えていれば再取得しない
+    try {
+        const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const info = await res.json();
+        if (info && info.email) setGcalAccountHint(info.email);
+        else if (force) setGcalAccountHint('');   // 取れなかったら古い hint は残さない
+    } catch (_) { /* 取得できなくても無言再認証を試すだけなので無視 */ }
+}
+
+// アクセストークンのキャッシュ。期限内 (前倒しぶんを引いた時点まで) のみ有効。
+function loadGcalToken() {
+    try {
+        const raw = JSON.parse(localStorage.getItem(GCAL_TOKEN_KEY) || 'null');
+        if (!raw || !raw.token || !raw.expiresAt) return null;
+        if (Date.now() >= raw.expiresAt - GCAL_TOKEN_SKEW_MS) { clearGcalToken(); return null; }
+        return raw.token;
+    } catch (_) { return null; }
+}
+function saveGcalToken(token, expiresInSec) {
+    const sec = Number(expiresInSec);
+    if (!token || !Number.isFinite(sec) || sec <= 0) { clearGcalToken(); return; }
+    try {
+        localStorage.setItem(GCAL_TOKEN_KEY, JSON.stringify({
+            token, expiresAt: Date.now() + sec * 1000,
+        }));
+    } catch (_) { /* 無視 */ }
+}
+function clearGcalToken() {
+    try { localStorage.removeItem(GCAL_TOKEN_KEY); } catch (_) { /* 無視 */ }
+}
+
 // グレーにする前の元の色 (id -> colorId 文字列。''=既定色) を localStorage と同期する。
 // リロードをまたいでもチェック解除時に元の色へ正しく戻せるようにするため。
 function loadGcalOrigColors() {
@@ -1102,6 +1161,7 @@ function saveGcalOrigColors(map) {
 // 消すと「無言取得が使える環境」で次回以降の自動復元まで止めてしまうため。
 function onGcalAuthFailure(msg) {
     gcalAccessToken = null;
+    clearGcalToken();
     if (gcalRefreshBtn) gcalRefreshBtn.style.display = 'none';
     if (gcalConnectBtn) { gcalConnectBtn.style.display = ''; gcalConnectBtn.disabled = !getGcalClientId(); }
     setGcalStatus(msg || '「Google と接続」を押すと今日の予定を表示します。');
@@ -1147,6 +1207,10 @@ function ensureGcalTokenClient() {
                 if (resp && resp.access_token) {
                     gcalAccessToken = resp.access_token;
                     setGcalConnectedFlag(true);   // 次回以降は無言復元を試みる
+                    saveGcalToken(resp.access_token, resp.expires_in);
+                    // 次回の login_hint 用に控える (待たない)。手動接続はアカウントを
+                    // 選び直せるので、そのときは控え直す。
+                    rememberGcalAccount(resp.access_token, !auto);
                     fetchTodayEvents();
                 } else {
                     onGcalAuthFailure(auto
@@ -1184,6 +1248,27 @@ function requestGcalToken(config) {
     tc.requestAccessToken(config || {});
 }
 
+// 無言取得 (prompt:'') の設定。連携アカウントを控えていれば login_hint を必ず添える。
+// 複数アカウントがログインしている環境では、これが無いと Google がどのセッションを
+// 使うか決められず account_selection_required で失敗する (= 毎回アカウント選択が出る)。
+function silentGcalConfig() {
+    const cfg = { prompt: '' };
+    const hint = getGcalAccountHint();
+    if (hint) cfg.login_hint = hint;
+    return cfg;
+}
+
+// トークン失効 (401) 時の取り直し。まず無言で試し、駄目なら error_callback が
+// 接続ボタンを再表示する。いきなり対話 UI を出さないことで画面の割り込みを減らす。
+function refreshGcalTokenSilently() {
+    gcalAccessToken = null;
+    clearGcalToken();
+    if (!isGcalConnectedBefore()) { connectGcal(); return; }
+    gcalConnectMode = 'auto';
+    setGcalStatus('接続を更新しています…');
+    whenGisReady(() => requestGcalToken(silentGcalConfig()));
+}
+
 // 「Google と接続」ボタン (ユーザー操作)。常に対話モードで呼ぶ。
 // こうすることで、無言取得が 3rd-party cookie 制限などで失敗する環境でも、
 // 同意/アカウント選択 UI が出て確実に接続できる (= ボタンが効かない状態を防ぐ)。
@@ -1208,9 +1293,16 @@ function whenGisReady(cb) {
 // 失敗時は error_callback が接続ボタンを再表示する。
 function autoConnectGcalIfPossible() {
     if (!getGcalClientId() || !isGcalConnectedBefore()) return;
+    // 期限内のトークンが残っていれば、Google への往復も画面の割り込みも無しで復元する
+    const cached = loadGcalToken();
+    if (cached) {
+        gcalAccessToken = cached;
+        fetchTodayEvents();
+        return;
+    }
     gcalConnectMode = 'auto';
     setGcalStatus('接続を復元しています…');
-    whenGisReady(() => requestGcalToken({ prompt: '' }));
+    whenGisReady(() => requestGcalToken(silentGcalConfig()));
 }
 
 async function fetchTodayEvents() {
@@ -1222,9 +1314,8 @@ async function fetchTodayEvents() {
         + '&singleEvents=true&orderBy=startTime&maxResults=50';
     try {
         const res = await fetch(url, { headers: { Authorization: `Bearer ${gcalAccessToken}` } });
-        if (res.status === 401) {        // トークン失効 → 取り直し
-            gcalAccessToken = null;
-            connectGcal();
+        if (res.status === 401) {        // トークン失効 → まず無言で取り直す
+            refreshGcalTokenSilently();
             return;
         }
         if (!res.ok) { setGcalStatus(`予定を取得できませんでした (HTTP ${res.status})。`); return; }
@@ -1284,7 +1375,7 @@ async function patchEventColor(ev, done) {
             headers: { Authorization: `Bearer ${gcalAccessToken}`, 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
         });
-        if (res.status === 401) { gcalAccessToken = null; connectGcal(); return false; }
+        if (res.status === 401) { refreshGcalTokenSilently(); return false; }
         if (!res.ok) { setGcalStatus(`カレンダーへの反映に失敗しました (HTTP ${res.status})。`); return false; }
         return true;
     } catch (_) {

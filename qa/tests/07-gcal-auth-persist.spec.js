@@ -1,7 +1,10 @@
 // Googleカレンダー認証保持（無言の自動再接続）の検証。
 //
 // 変更仕様（2026-06-18 接続フロー修正後）:
-//  - 接続成功時に localStorage['pomodoro_gcal_connected']='1' を保存（access_token は保存しない）。
+//  - 接続成功時に localStorage['pomodoro_gcal_connected']='1' を保存。
+//    ※ access_token のキャッシュ（expires_in 付き応答のとき）と login_hint は
+//      2026-08-29 に追加。仕様と検証は 11-gcal-silent-auth.spec.js を参照。
+//      この spec のスタブは expires_in を返さないため、ここではキャッシュは発生しない。
 //  - 起動時、client_id があり かつ connected==='1' なら GIS 準備完了後に
 //    requestAccessToken({prompt:''}) を自動実行（無言復元・ボタン押下不要）。#gcal-status は「接続を復元しています…」。
 //  - 手動「Google と接続」ボタン: 接続済みフラグの有無に関わらず *常に対話モード* で
@@ -178,7 +181,7 @@ test.describe('GCal 認証保持: 手動接続ボタンは常に対話モード�
 });
 
 // ---------------------------------------------------------------------------
-test.describe('GCal 認証保持: 成功でフラグ保存 / access_token 非永続', () => {
+test.describe('GCal 認証保持: 成功でフラグ保存 / 期限不明トークンは非永続', () => {
   test('未接続→consent→成功 callback で connected フラグが "1" に保存される', async ({ page }) => {
     await installInitStubs(page, { seedItems: [] });
     await gotoApp(page, { localStorage: { [CLIENT_ID_KEY]: CLIENT_ID } });
@@ -190,7 +193,7 @@ test.describe('GCal 認証保持: 成功でフラグ保存 / access_token 非永
     await expect.poll(() => page.evaluate((k) => localStorage.getItem(k), CONNECTED_KEY)).toBe('1');
   });
 
-  test('access_token は localStorage / sessionStorage に保存されない（フラグのみ）', async ({ page }) => {
+  test('expires_in の無い応答では access_token をどこにも保存しない（フラグのみ）', async ({ page }) => {
     await installInitStubs(page, { seedItems: [] });
     await gotoApp(page, { localStorage: { [CLIENT_ID_KEY]: CLIENT_ID } });
 
