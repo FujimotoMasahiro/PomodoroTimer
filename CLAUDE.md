@@ -11,15 +11,43 @@
 
 ## 🔁 QAルール（必須・このリポジトリの取り決め）
 
-**アプリのソース（`index.html` / `PomodoroTimerController.js` / `MusicManager.js` / `extension/` 配下）を修正したら、修正完了後に必ずテスターエージェントへサイトを投げて再検証する。**
+**アプリのソース（`index.html` / `PomodoroTimerController.js` / `MusicManager.js` / `extension/` 配下）を修正したら、修正完了後に必ず再検証する。ただし範囲は「今回の変更に影響する spec」に限る（下記）。**
+
+### 実行範囲: 変更箇所に影響する spec だけ（2026-08-29 決定）
+
+**全件実行（`npx playwright test` の引数なし）はしない。** 工数削減のため、既存機能の
+回帰テストは回さず、**今回いじった箇所に影響する spec だけ**をファイル指定で実行する。
+
+```bash
+cd qa && npx playwright test tests/11-gcal-silent-auth.spec.js   # 例: 認証まわりを直したとき
+```
+
+対象 spec の選び方:
+- 変更した機能に対応する spec（下の対応表）。
+- 変更で**壊れうる** spec（同じ DOM / localStorage キー / 共通 fixture を触る場合）。
+  例: `index.html` のレイアウトを変えた → `_explore-newfeatures.spec.js`。
+  `tests/fixtures.js` を変えた → その fixture を使う spec は影響範囲なので回す。
+- 新しい挙動を足したら、**その挙動の spec を新規に足す**（既存 spec の素通りを防ぐ）。
+  可能なら「入れた実装を一時的に外すと落ちるか」を 1 回だけ確かめて検出力を確認する。
+
+spec 対応表:
+| 変更した場所 | 回す spec |
+| --- | --- |
+| タイマーの状態機械・ボタン | `01-timer-buttons` / `04-timer-drift` |
+| 音源切替・BGM | `02-audio-sources` / `10-bgm-playback-rate-lock` |
+| YouTube 再生リスト・モード | `03-youtube-queue` / `05-youtube-mode-progress` |
+| カレンダーの描画・チェック | `06-gcal-checklist` / `09-gcal-fixes` |
+| カレンダーの認証・トークン | `07-gcal-auth-persist` / `11-gcal-silent-auth` / `08-gcal-nomock-smoke` |
+| 画面レイアウト・サイドバー | `_explore-newfeatures` |
 
 手順:
 1. 開発エージェント（メイン）が修正を実装し、自分でビルド/起動の最低限確認をする。
-2. **修正完了次第**、テスター（`pomodoro-tester`）に再検証を依頼する。
-   - 対話では `@pomodoro-tester` を呼ぶ。
-   - 最低限の自動確認は `cd qa && npx playwright test`（変更領域に対応する spec を重点的に）。
+2. **修正完了次第**、上の基準で選んだ spec だけを実行する。
+   - テスター（`pomodoro-tester`）に依頼する場合も**範囲を明示して**渡す（対話では `@pomodoro-tester`）。
 3. テスターは**バグを直さず**構造化レポート（`qa/reports/REPORT-YYYY-MM-DD.md`）で返す。
 4. レポートを受けて開発エージェントが修正 → 再びテスターへ。**緑になるまでこのループを回す。**
+
+全件実行してよいのは、本人から明示的に依頼されたときだけ。
 
 役割分担（厳守）:
 - **テスターはアプリのソースを絶対に修正しない**（読み取り＋テストのみ。書き込みは `qa/` 配下だけ）。アプリの修正はすべて開発エージェントが行う。
