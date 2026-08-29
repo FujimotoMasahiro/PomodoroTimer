@@ -5,7 +5,7 @@
 ## 構成
 - `index.html` … 画面。Bootstrap 5（CDN）。
 - `PomodoroTimerController.js` … 状態機械（`STATUS_ENUM`）・ボタン制御・音源切替・YouTube 再生リスト・Wake Lock・拡張モーダル。
-- `MusicManager.js` … `MusicManager`（audio 要素）/ `VoicyManager`（iframe）/ `YouTubeManager`（IFrame API）。
+- `MusicManager.js` … `MusicManager`（audio 要素）/ `VoicyManager`（iframe）/ `YouTubeManager`（IFrame API）/ `LocalMediaManager`（ローカルの音源・動画。先頭を再生し終わったら末尾へ回す「ロケットえんぴつ式」）。
 - `extension/` … YouTube タブ一括追加の Chrome 拡張。
 - `qa/` … QA / Playwright 一式（**アプリ本体ではない**）。`qa/README.md` 参照。
 
@@ -36,9 +36,20 @@ spec 対応表:
 | タイマーの状態機械・ボタン | `01-timer-buttons` / `04-timer-drift` |
 | 音源切替・BGM | `02-audio-sources` / `10-bgm-playback-rate-lock` |
 | YouTube 再生リスト・モード | `03-youtube-queue` / `05-youtube-mode-progress` |
-| カレンダーの描画・チェック | `06-gcal-checklist` / `09-gcal-fixes` |
+| カレンダーの描画・チェック | `06-gcal-checklist` / `09-gcal-fixes` / `12-gcal-birthday-event` |
 | カレンダーの認証・トークン | `07-gcal-auth-persist` / `11-gcal-silent-auth` / `08-gcal-nomock-smoke` |
+| ローカルファイル再生・一覧 | `13-local-media`（音源切替も触るなら `02-audio-sources`） |
 | 画面レイアウト・サイドバー | `_explore-newfeatures` |
+
+ハマりどころ:
+- 設定は**選んでいる音源の分だけ**表示する。spec で Voicy URL / YouTube 一覧 /
+  ローカル一覧を触るときは、先に `#work-source` などでその音源を選ぶこと。
+- 設定アコーディオンは既定で畳まれている。`gotoApp` が `pomodoro_sidebar_panels` を
+  seed して開いた状態から始める（`openSettings: false` で素の状態にできる）。
+- ローカルファイルの一覧は IndexedDB (`pomodoro-local-media`) に保存する。
+  書き込みは非同期なので、リロードを挟む spec は保存完了を待ってから reload する。
+- Playwright の Chromium は `showOpenFilePicker` を**実装している**。フォールバック経路
+  （`<input type="file">`）を試すときは `delete window.showOpenFilePicker` してから開く。
 
 手順:
 1. 開発エージェント（メイン）が修正を実装し、自分でビルド/起動の最低限確認をする。
