@@ -28,6 +28,26 @@ const listedNames = async (page) => rowNames(page).allTextContents();
 const currentId = (page) => page.evaluate(() => window.PomodoroTimer.__localState().currentId);
 const queueIds = (page) => page.evaluate(() => window.PomodoroTimer.__localState().queueIds);
 
+// IndexedDB に保存済みの件数。追加直後は書き込みが非同期なので、
+// リロード前にここが揃うのを待つ。
+const savedCount = (page) => page.evaluate(async () => {
+  try {
+    const db = await new Promise((res, rej) => {
+      const r = indexedDB.open('pomodoro-local-media', 1);
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+    const rows = await new Promise((res, rej) => {
+      const tx = db.transaction('items', 'readonly');
+      const req = tx.objectStore('items').getAll();
+      req.onsuccess = () => res(req.result || []);
+      req.onerror = () => rej(req.error);
+    });
+    db.close();
+    return rows.length;
+  } catch (_) { return -1; }
+});
+
 // 再生終了を再現する（表示中の要素に ended を投げる）
 async function fireEnded(page) {
   await page.evaluate(() => {
@@ -118,7 +138,9 @@ test.describe('ローカルファイル: 一覧の管理', () => {
 
   test('ハンドルを保存できない経路では、その旨を伝える', async ({ page }) => {
     await page.locator('#local-file-input').setInputFiles([AUDIO_FILE]);
-    await expect(page.locator('#local-file-note')).toContainText('次回まで覚えられません');
+    // ここは <input type="file"> 経由なので実体はメモリのみ
+    await expect(page.locator('#local-file-note')).toContainText('ファイルの中身までは覚えられません');
+    await expect(page.locator('#local-file-note')).toContainText('選び直す');
   });
 });
 
@@ -257,5 +279,181 @@ test.describe('ローカルファイル: console / pageerror 監視', () => {
       (e) => !/iframe_api|ytimg|voicy|gtag|gsi\/client|accounts\.google|googleapis|net::ERR_FAILED|Failed to load resource|play\(\)|NotSupportedError|no supported source/i.test(e)
     );
     expect(real, JSON.stringify(real, null, 2)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 一覧の保持（2026-08-29 追加）。
+//  - File System Access API がある環境: ハンドルごと IndexedDB に保存し、次に開くと
+//    そのまま再生できる状態で一覧が戻る。
+//  - 無い環境: 名前と並び順だけ保存する。一覧は戻るが実体が無いので「要再選択」を出し、
+//    行の「選び直す」でファイルを紐付け直せる。
+test.describe('ローカルファイル: 再度開いたときの一覧の保持', () => {
+  // showOpenFilePicker を差し込む（handle は structured clone できる形にする）
+  const installPicker = (page, names) =>
+    page.addInitScript((list) => {
+      window.showOpenFilePicker = async () => list.map((n) => ({ name: n, kind: 'file' }));
+    }, names);
+
+  test('ファイルピッカー経由なら、リロードしても一覧がそのまま戻る', async ({ page }) => {
+    await installPicker(page, ['saved-a.mp3', 'saved-b.mp4']);
+    await gotoApp(page);
+    await page.selectOption('#work-source', 'local');
+    await page.locator('#local-add-btn').click();
+    await expect(rows(page)).toHaveCount(2);
+    await expect.poll(() => savedCount(page)).toBe(2);
+
+    await page.reload();
+    await expect(page.locator('#timer')).toHaveText(/^\d{2}:\d{2}$/);
+    await page.selectOption('#work-source', 'local');
+
+    await expect(rows(page)).toHaveCount(2);
+    expect(await listedNames(page)).toEqual(['saved-a.mp3', 'saved-b.mp4']);
+    // 実体を持っているので「要再選択」は出ない
+    await expect(page.locator('.local-file-row-unlinked')).toHaveCount(0);
+  });
+
+  test('並び替え（ロケットえんぴつ後）の順番も保持される', async ({ page }) => {
+    await installPicker(page, ['saved-a.mp3', 'saved-b.mp4', 'saved-c.mp3']);
+    await gotoApp(page);
+    await page.selectOption('#work-source', 'local');
+    await page.locator('#local-add-btn').click();
+    await expect(rows(page)).toHaveCount(3);
+
+    // 先頭を末尾へ回す（再生が 1 本終わった状態）
+    await page.evaluate(() => {
+      const id = window.PomodoroTimer.__localState().allIds[0];
+      window.PomodoroTimer.__rotateLocal(id);
+    });
+    await expect.poll(() => listedNames(page))
+      .toEqual(['saved-b.mp4', 'saved-c.mp3', 'saved-a.mp3']);
+    await expect.poll(() => savedCount(page)).toBe(3);
+
+    await page.reload();
+    await expect(page.locator('#timer')).toHaveText(/^\d{2}:\d{2}$/);
+    await page.selectOption('#work-source', 'local');
+    await expect.poll(() => listedNames(page))
+      .toEqual(['saved-b.mp4', 'saved-c.mp3', 'saved-a.mp3']);
+  });
+
+  test('削除した項目は次に開いても戻ってこない', async ({ page }) => {
+    await installPicker(page, ['saved-a.mp3', 'saved-b.mp4']);
+    await gotoApp(page);
+    await page.selectOption('#work-source', 'local');
+    await page.locator('#local-add-btn').click();
+    await expect(rows(page)).toHaveCount(2);
+    await rows(page).nth(0).getByRole('button', { name: '削除' }).click();
+    await expect(rows(page)).toHaveCount(1);
+    await expect.poll(() => savedCount(page)).toBe(1);
+
+    await page.reload();
+    await expect(page.locator('#timer')).toHaveText(/^\d{2}:\d{2}$/);
+    await page.selectOption('#work-source', 'local');
+    await expect(rows(page)).toHaveCount(1);
+    expect(await listedNames(page)).toEqual(['saved-b.mp4']);
+  });
+
+  test('「すべて削除」は保存内容も消える', async ({ page }) => {
+    await installPicker(page, ['saved-a.mp3']);
+    await gotoApp(page);
+    await page.selectOption('#work-source', 'local');
+    await page.locator('#local-add-btn').click();
+    await expect(rows(page)).toHaveCount(1);
+    await page.locator('#local-clear-btn').click();
+    await expect.poll(() => savedCount(page)).toBe(0);
+
+    await page.reload();
+    await expect(page.locator('#timer')).toHaveText(/^\d{2}:\d{2}$/);
+    await page.selectOption('#work-source', 'local');
+    await expect(rows(page)).toHaveCount(0);
+  });
+
+  test('input 経由でも一覧は戻り、実体が無い行は「要再選択」になる', async ({ page }) => {
+    await page.addInitScript(() => { delete window.showOpenFilePicker; });
+    await gotoApp(page);
+    await page.selectOption('#work-source', 'local');
+    await page.locator('#local-file-input').setInputFiles([AUDIO_FILE, VIDEO_FILE]);
+    await expect(rows(page)).toHaveCount(2);
+    // 追加直後は実体を持っているので警告は出ない
+    await expect(page.locator('.local-file-row-unlinked')).toHaveCount(0);
+    await expect.poll(() => savedCount(page)).toBe(2);
+
+    await page.reload();
+    await expect(page.locator('#timer')).toHaveText(/^\d{2}:\d{2}$/);
+    await page.selectOption('#work-source', 'local');
+
+    // 一覧は戻る（名前・順番とも）
+    await expect(rows(page)).toHaveCount(2);
+    expect(await listedNames(page)).toEqual(['track-a.mp3', 'clip.mp4']);
+    // ただし実体が無いので選び直しを促す
+    await expect(page.locator('.local-file-row-unlinked')).toHaveCount(2);
+    await expect(rows(page).nth(0)).toContainText('要再選択');
+    await expect(page.locator('#local-file-note')).toContainText('選び直す');
+  });
+
+  // File System Access API が無い環境では、行に実物の <input type="file"> を置く。
+  // 隠し input を script から click してもダイアログが開かない環境があるため。
+  test('ファイルピッカーが無い環境: 行の「選び直す」で紐付け直せる', async ({ page }) => {
+    await page.addInitScript(() => { delete window.showOpenFilePicker; });
+    await gotoApp(page);
+    await page.selectOption('#work-source', 'local');
+    await page.locator('#local-file-input').setInputFiles([AUDIO_FILE]);
+    await expect.poll(() => savedCount(page)).toBe(1);
+
+    await page.reload();
+    await expect(page.locator('#timer')).toHaveText(/^\d{2}:\d{2}$/);
+    await page.selectOption('#work-source', 'local');
+    await expect(page.locator('.local-file-row-unlinked')).toHaveCount(1);
+
+    await rows(page).nth(0).locator('input.local-relink-input').setInputFiles([AUDIO_FILE]);
+
+    await expect(page.locator('.local-file-row-unlinked')).toHaveCount(0);
+    await expect.poll(() => queueIds(page)).toHaveLength(1);
+  });
+
+  // ピッカーがある環境では、選び直すとハンドルごと覚え直すので次回は不要になる
+  test('ファイルピッカーがある環境: 選び直すとハンドルごと覚え直す', async ({ page }) => {
+    await page.addInitScript(() => { delete window.showOpenFilePicker; });
+    await gotoApp(page);
+    await page.selectOption('#work-source', 'local');
+    await page.locator('#local-file-input').setInputFiles([AUDIO_FILE]);
+    await expect.poll(() => savedCount(page)).toBe(1);
+
+    // 次に開くときはピッカーが使える状態にしておく
+    await page.addInitScript(() => {
+      window.showOpenFilePicker = async () => ([{ name: 'relinked.mp3', kind: 'file' }]);
+    });
+    await page.reload();
+    await expect(page.locator('#timer')).toHaveText(/^\d{2}:\d{2}$/);
+    await page.selectOption('#work-source', 'local');
+    await expect(page.locator('.local-file-row-unlinked')).toHaveCount(1);
+
+    await rows(page).nth(0).getByRole('button', { name: '選び直す' }).click();
+
+    await expect(page.locator('.local-file-row-unlinked')).toHaveCount(0);
+    expect(await listedNames(page)).toEqual(['relinked.mp3']);
+
+    // ハンドルを覚えたので、次に開いたときは選び直しが要らない
+    await page.reload();
+    await expect(page.locator('#timer')).toHaveText(/^\d{2}:\d{2}$/);
+    await page.selectOption('#work-source', 'local');
+    await expect(page.locator('.local-file-row-unlinked')).toHaveCount(0);
+  });
+
+  test('実体が無い行は再生キューから飛ばされる', async ({ page }) => {
+    await page.addInitScript(() => { delete window.showOpenFilePicker; });
+    await gotoApp(page);
+    await page.selectOption('#work-source', 'local');
+    await page.locator('#local-file-input').setInputFiles([AUDIO_FILE, AUDIO_FILE_2]);
+    await expect.poll(() => savedCount(page)).toBe(2);
+    await page.reload();
+    await expect(page.locator('#timer')).toHaveText(/^\d{2}:\d{2}$/);
+    await page.selectOption('#work-source', 'local');
+    await expect(rows(page)).toHaveCount(2);
+
+    // 2 行とも実体が無いので、再生対象は空
+    expect(await queueIds(page)).toEqual([]);
+    await page.locator('#start-btn').click();
+    await expect(page.locator('#local-now-playing')).toContainText('ファイルが選ばれていません');
   });
 });

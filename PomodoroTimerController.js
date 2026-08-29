@@ -449,10 +449,10 @@ async function writeLocalItemsToDb() {
             const store = tx.objectStore(LOCAL_DB_STORE);
             store.clear();
             localItems.forEach((it, i) => {
-                // ハンドルを保存できない環境では handle:null のまま入れる
-                // (名前だけ残っても再生できないので、その場合は保存しない)
-                if (!it.handle) return;
-                store.put({ id: it.id, name: it.name, kind: it.kind, order: i, handle: it.handle });
+                // ハンドルが無い (= <input type="file"> 経由) 項目も、名前と並び順は
+                // 残しておく。次に開いたとき一覧をそのまま再表示し、行ごとに
+                // 「選び直す」でファイルを紐付け直せるようにするため。
+                store.put({ id: it.id, name: it.name, kind: it.kind, order: i, handle: it.handle || null });
             });
             tx.oncomplete = resolve;
             tx.onerror = () => reject(tx.error);
@@ -468,7 +468,12 @@ async function resolveLocalFile(id) {
     const cached = localFileCache.get(id);
     if (cached) return cached;
     const item = localItems.find((it) => it.id === id);
-    if (!item || !item.handle) return null;
+    if (!item) return null;
+    if (!item.handle) {
+        // 一覧は残っているがファイルの実体がまだ無い状態
+        setLocalNote(`「${item.name}」は行の「選び直す」からファイルを指定してください。`);
+        return null;
+    }
     try {
         const perm = await queryLocalPermission(item.handle);
         if (perm !== 'granted') { showLocalGrantButton(true); return null; }
@@ -476,6 +481,11 @@ async function resolveLocalFile(id) {
     } catch (_) {
         return null;
     }
+}
+
+// その項目が今すぐ再生できるか (ハンドルがある / この画面でファイルを選び直した)
+function isLocalItemReady(item) {
+    return !!(item && (item.handle || localFileCache.has(item.id)));
 }
 
 async function queryLocalPermission(handle) {
@@ -561,7 +571,21 @@ function renderLocalFileList() {
         del.textContent = '削除';
         del.addEventListener('click', () => removeLocalItem(item.id));
 
-        row.append(handle, order, name, kind, del);
+        row.append(handle, order, name, kind);
+
+        // 一覧は覚えていても、ファイルの実体を持てていない項目がある
+        // (<input type="file"> 経由で追加し、ページを開き直したときなど)。
+        // その行だけ選び直せるようにする。
+        if (!isLocalItemReady(item)) {
+            row.classList.add('local-file-row-unlinked');
+            const warn = document.createElement('span');
+            warn.className = 'badge bg-warning text-dark flex-shrink-0';
+            warn.textContent = '要再選択';
+            row.append(warn, buildRelinkControl(item.id));
+            name.classList.add('text-muted');
+        }
+
+        row.append(del);
         localFileListContainer.appendChild(row);
     });
     updateLocalNowPlayingLabel();
@@ -572,7 +596,12 @@ function updateLocalNowPlayingLabel() {
         setLocalNowPlaying('設定の「ローカルファイル」からファイルを追加してください。');
         return;
     }
-    setLocalNowPlaying(`再生中: ${localItems[0].name}（終わると一番下へ回ります）`);
+    const queue = getLocalQueue();
+    if (queue.length === 0) {
+        setLocalNowPlaying('一覧は残っていますが、ファイルが選ばれていません。設定の「選び直す」から指定してください。');
+        return;
+    }
+    setLocalNowPlaying(`再生中: ${queue[0].name}（終わると一番下へ回ります）`);
 }
 
 // ドラッグ並び替え (YouTube 一覧と同じ操作感)
@@ -659,10 +688,85 @@ function addLocalFilesFromInput(files) {
         localFileCache.set(id, file);
         localItems.push({ id, name: file.name, kind, handle: null });
     });
-    // ハンドルを保存できない経路なので、リロードで消えることを伝える
-    setLocalNote('このブラウザでは選んだファイルを次回まで覚えられません。リロードすると選び直しになります。');
+    // 一覧は次回も残るが、ファイルの実体までは覚えられない経路
+    setLocalNote('このブラウザでは一覧は覚えますが、ファイルの中身までは覚えられません。'
+        + '次に開いたときは各行の「選び直す」でファイルを指定してください。');
     renderLocalFileList();
+    writeLocalItemsToDb();   // 名前と並び順は残して次回に一覧を再表示する
     refreshActiveSourceIfPlaying();
+}
+
+// 「選び直す」の操作部品を作る。
+// File System Access API がある環境ではピッカーを開いてハンドルごと覚え直す
+// (次回からは選び直しが不要になる)。無い環境では行に <input type="file"> を
+// 直接置く: 隠し input を script から click しても環境によってはダイアログが
+// 開かないため、label で包んだ実物のほうが確実。
+function buildRelinkControl(id) {
+    if (supportsFileSystemAccess()) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-sm btn-outline-secondary flex-shrink-0 local-relink-btn';
+        btn.textContent = '選び直す';
+        btn.addEventListener('click', () => relinkLocalItem(id));
+        return btn;
+    }
+    const label = document.createElement('label');
+    label.className = 'btn btn-sm btn-outline-secondary flex-shrink-0 mb-0 local-relink-btn';
+    label.textContent = '選び直す';
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.className = 'd-none local-relink-input';
+    input.accept = 'audio/*,video/*';
+    input.addEventListener('change', () => {
+        const file = input.files && input.files[0];
+        if (file) attachFileToLocalItem(id, file);
+        input.value = '';
+    });
+    label.appendChild(input);
+    return label;
+}
+
+// ピッカーで選び直してハンドルを覚え直す (File System Access API 環境のみ)
+async function relinkLocalItem(id) {
+    if (!localItems.some((it) => it.id === id)) return;
+    try {
+        const [handle] = await window.showOpenFilePicker({ multiple: false });
+        if (handle) await attachHandleToLocalItem(id, handle);
+    } catch (_) { /* キャンセルは何もしない */ }
+}
+
+async function attachHandleToLocalItem(id, handle) {
+    const item = localItems.find((it) => it.id === id);
+    if (!item) return;
+    let file = null;
+    try { file = await handle.getFile(); } catch (_) { /* 無視 */ }
+    item.handle = handle;
+    item.name = (file && file.name) || handle.name || item.name;
+    item.kind = LocalMediaManager.isVideoFile(item.name, file && file.type) ? 'video' : 'audio';
+    localFileCache.delete(id);
+    setLocalNote('');
+    renderLocalFileList();
+    await writeLocalItemsToDb();
+    refreshActiveSourceIfPlaying();
+}
+
+function attachFileToLocalItem(id, file) {
+    const item = localItems.find((it) => it.id === id);
+    if (!item || !file) return;
+    localFileCache.set(id, file);
+    item.name = file.name;
+    item.kind = LocalMediaManager.isVideoFile(file.name, file.type) ? 'video' : 'audio';
+    setLocalNote(localUnlinkedNote());
+    renderLocalFileList();
+    writeLocalItemsToDb();
+    refreshActiveSourceIfPlaying();
+}
+
+// 実体を持てていない行がいくつあるかに応じた案内文
+function localUnlinkedNote() {
+    const unlinked = localItems.filter((it) => !isLocalItemReady(it)).length;
+    if (unlinked === 0) return '';
+    return `このブラウザではファイルの中身までは覚えられません。${unlinked} 件は「選び直す」でファイルを指定してください。`;
 }
 
 function removeLocalItem(id) {
@@ -687,12 +791,15 @@ function clearLocalItems() {
 }
 
 // ---- 再生キュー / ロケットえんぴつ -------------------------------------------
+// 再生キューは一覧の並び順のまま。ただし実体を持てていない行 (要再選択) は
+// 鳴らせないので飛ばす。並び替え / ロケットえんぴつの回転は一覧全体で行うため、
+// 選び直せばそのままの位置で再生対象に戻る。
 function getLocalQueue() {
-    return localItems.map((it) => ({ id: it.id, name: it.name }));
+    return localItems.filter(isLocalItemReady).map((it) => ({ id: it.id, name: it.name }));
 }
 
 function localQueueIds() {
-    return localItems.map((it) => it.id);
+    return localItems.filter(isLocalItemReady).map((it) => it.id);
 }
 
 // 1 本再生し終わったら、その行を一番下へ回して次を再生する。
@@ -747,6 +854,7 @@ async function initLocalMediaList() {
     }
     showLocalGrantButton(needGrant);
     if (needGrant) setLocalNote('前回のファイルを読み込むには「読み込みを許可」を押してください。');
+    else setLocalNote(localUnlinkedNote());
 }
 initLocalMediaList();
 
@@ -1035,9 +1143,6 @@ const restartButton = document.getElementById('restart-btn'); // 再開ボタン
 const skipButton = document.getElementById('skip-btn'); // スキップボタン
 const resetButton = document.getElementById('reset-btn'); // リセットボタン
 
-// セッティングフォーム
-const settingsForm = document.getElementById('settings-form');
-
 const oneSecond = 1000;
 const oneMinits = 60;
 let WORKTIME_MINUTE = 25;
@@ -1243,16 +1348,6 @@ function resetCycles() {
     cycles = 0;
     cyclesElement.textContent = cycles;
 }
-
-// 設定の保存
-settingsForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-    workDuration = document.getElementById('work-duration').value * oneMinits;
-    breakDuration = document.getElementById('break-duration').value * oneMinits;
-    longBreakDuration = document.getElementById('long-break-duration').value * oneMinits;
-    longBreakFrequency = document.getElementById('long-break-frequency').value;
-    resetTimer();
-});
 
 // イベントリスナー
 startButton.addEventListener('click', function () {
@@ -1478,6 +1573,7 @@ const GCAL_TOKEN_KEY = 'pomodoro_gcal_token';
 // 期限ぎりぎりで使って 401 になるのを避けるための前倒し (1 分)
 const GCAL_TOKEN_SKEW_MS = 60 * 1000;
 
+const gcalSetupBox = document.getElementById('gcal-setup');
 const gcalClientIdInput = document.getElementById('gcal-client-id');
 const gcalConnectBtn = document.getElementById('gcal-connect-btn');
 const gcalRefreshBtn = document.getElementById('gcal-refresh-btn');
@@ -1596,6 +1692,7 @@ function onGcalAuthFailure(msg) {
     clearGcalToken();
     if (gcalRefreshBtn) gcalRefreshBtn.style.display = 'none';
     if (gcalConnectBtn) { gcalConnectBtn.style.display = ''; gcalConnectBtn.disabled = !getGcalClientId(); }
+    updateGcalSetupVisibility();
     setGcalStatus(msg || '「Google と接続」を押すと今日の予定を表示します。');
 }
 
@@ -1616,6 +1713,16 @@ function setGcalStatus(msg) {
 // クライアント ID の有無で接続ボタンの活性を切り替える
 function refreshGcalButtons() {
     if (gcalConnectBtn) gcalConnectBtn.disabled = !getGcalClientId();
+    updateGcalSetupVisibility();
+}
+
+// OAuth クライアント ID の欄は「まだ連携できていないとき」だけ出す。
+// 接続できた後は「今日の予定」を見るのが目的なので、設定は畳んでおく。
+// 判定は接続ボタンの表示状態にそろえる (= 接続済みなら接続ボタンは隠れている)。
+function updateGcalSetupVisibility() {
+    if (!gcalSetupBox) return;
+    const connected = !!gcalConnectBtn && gcalConnectBtn.style.display === 'none';
+    gcalSetupBox.style.display = connected ? 'none' : '';
 }
 
 // 今日 (ローカルタイムゾーン) の 00:00〜翌 00:00 を RFC3339 で返す
@@ -1857,6 +1964,7 @@ function renderGcalEvents() {
     // 接続済みになったらボタンを「更新」に切り替える
     if (gcalConnectBtn) gcalConnectBtn.style.display = 'none';
     if (gcalRefreshBtn) gcalRefreshBtn.style.display = '';
+    updateGcalSetupVisibility();
 
     if (gcalEvents.length === 0) {
         setGcalStatus('今日の予定はありません。');
@@ -1996,8 +2104,10 @@ window.PomodoroTimer.__localState = function () {
         currentId: LOCAL_MANAGER.currentId,
         usingVideo: !!LOCAL_MANAGER._usingVideo,
         queueIds: localQueueIds(),
+        allIds: localItems.map((it) => it.id),
     };
 };
+window.PomodoroTimer.__rotateLocal = function (id) { rotateLocalItemToEnd(id); };
 window.PomodoroTimer.__setGcalEvents = function (events) {
     gcalEvents = Array.isArray(events) ? events : [];
     renderGcalEvents();

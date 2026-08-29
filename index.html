@@ -165,10 +165,21 @@
                                     <div id="gcal-progress-bar" class="progress-bar bg-success" role="progressbar"
                                         style="width: 0%;" aria-label="予定の消化"></div>
                                 </div>
+                                <!-- 連携がまだのときだけ出す設定。接続できたら隠れる -->
+                                <div id="gcal-setup" class="mb-3">
+                                    <label for="gcal-client-id" class="form-label small mb-1">OAuth クライアント ID</label>
+                                    <input type="text" id="gcal-client-id" class="form-control form-control-sm"
+                                        autocomplete="off" placeholder="xxxxxxxx.apps.googleusercontent.com">
+                                    <div class="form-text">
+                                        Google Cloud で発行した OAuth クライアント ID を貼り付けて「Google と接続」を押すと、
+                                        今日の予定がチェックリストで表示されます（読み取り＋色の書き戻しのみ・費用ゼロ）。
+                                        クライアント ID は公開情報のため保存しても安全です。
+                                    </div>
+                                </div>
                                 <ul id="gcal-event-list" class="list-group list-group-flush"></ul>
                                 <p id="gcal-status" class="text-muted small mb-0 py-3 text-center">
-                                    設定「Googleカレンダー連携」に OAuth クライアント ID を入れて「Google と接続」を押すと、
-                                    今日の予定がチェックリストで表示されます。チェックするとカレンダー上の予定がグレーアウト（完了）になります。
+                                    上の欄に OAuth クライアント ID を入れて「Google と接続」を押すと、今日の予定が
+                                    チェックリストで表示されます。チェックするとカレンダー上の予定がグレーアウト（完了）になります。
                                 </p>
                             </div>
                         </div>
@@ -249,57 +260,6 @@
                                     <div class="form-text" id="local-file-note"></div>
                                 </div>
 
-                                <hr>
-                                <h6 class="mt-2">Googleカレンダー連携</h6>
-                                <div class="mb-3">
-                                    <label for="gcal-client-id" class="form-label">OAuth クライアント ID</label>
-                                    <input type="text" id="gcal-client-id" class="form-control" autocomplete="off"
-                                        placeholder="xxxxxxxx.apps.googleusercontent.com">
-                                    <div class="form-text">
-                                        Google Cloud で発行した OAuth クライアント ID を貼り付けてください
-                                        （読み取り専用・費用ゼロ）。本文の「今日の予定」で「Google と接続」を押すと、
-                                        今日の予定をチェックリストで表示します。クライアント ID は公開情報のため保存しても安全です。
-                                    </div>
-                                </div>
-
-                                <hr>
-
-                                <p class="text-info">以下は今後バージョンアップにて使用可能になる予定です。</p>
-                                <form id="settings-form">
-                                    <div class="mb-3">
-                                        <label for="work-duration" class="form-label">作業時間 (分)</label>
-                                        <input type="number" id="work-duration" class="form-control" value="25" min="1"
-                                            disabled>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label for="break-duration" class="form-label">休憩時間 (分)</label>
-                                        <input type="number" id="break-duration" class="form-control" value="5" min="1"
-                                            disabled>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label for="long-break-duration" class="form-label">長時間休憩時間 (分)</label>
-                                        <input type="number" id="long-break-duration" class="form-control" value="5" min="1"
-                                            disabled>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label for="long-break-frequency" class="form-label">長時間休憩の頻度 (ポモドーロ数)</label>
-                                        <input type="number" id="long-break-frequency" class="form-control" value="4" min="1"
-                                            disabled>
-                                    </div>
-                                    <div class="form-check">
-                                        <input type="checkbox" id="auto-start-work" class="form-check-input" checked disabled>
-                                        <label for="auto-start-work" class="form-check-label">次の作業を自動スタート</label>
-                                    </div>
-                                    <div class="form-check">
-                                        <input type="checkbox" id="auto-start-break" class="form-check-input" checked disabled>
-                                        <label for="auto-start-break" class="form-check-label">次の休憩を自動スタート</label>
-                                    </div>
-                                    <div class="form-check">
-                                        <input type="checkbox" id="mute-notifications" class="form-check-input" disabled>
-                                        <label for="mute-notifications" class="form-check-label">通知をミュート</label>
-                                    </div>
-                                    <button type="submit" class="btn btn-success mt-3" disabled>設定を保存</button>
-                                </form>
                             </div>
                         </div>
                     </div>

@@ -314,3 +314,32 @@ test.describe('GCal 無言認証: console / pageerror 監視', () => {
     expect(real, JSON.stringify(real, null, 2)).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 接続設定 (OAuth クライアント ID) の出し分け（2026-08-29）。
+// 未連携のときだけ「今日の予定」パネルに出し、接続できたら畳む。
+test.describe('GCal 無言認証: 接続設定の出し分け', () => {
+  const setup = (page) => page.locator('#gcal-setup');
+
+  test('接続成功で畳まれ、認証が失敗して未接続へ戻るとまた出てくる', async ({ page }) => {
+    await installInitStubs(page, { seedItems: EVENTS });
+    await gotoApp(page, {
+      localStorage: { [CLIENT_ID_KEY]: CLIENT_ID, [CONNECTED_KEY]: '1', [ACCOUNT_KEY]: 'masa@example.com' },
+    });
+
+    // 起動時は未接続 = 設定が見えている
+    await expect(setup(page)).toBeVisible();
+
+    await expect.poll(async () => (await tokenCalls(page)).length).toBe(1);
+    await page.evaluate(() => window.__gisCtl.fire('tok', 3600));
+
+    // 接続できたら畳まれる
+    await expect(page.locator('#gcal-refresh-btn')).toBeVisible();
+    await expect(setup(page)).toBeHidden();
+
+    // 認証が切れて未接続へ戻ると、また入力できる
+    await page.evaluate(() => window.__gisCtl.error());
+    await expect(page.locator('#gcal-connect-btn')).toBeVisible();
+    await expect(setup(page)).toBeVisible();
+  });
+});

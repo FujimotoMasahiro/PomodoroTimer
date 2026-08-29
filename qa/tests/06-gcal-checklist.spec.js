@@ -415,3 +415,23 @@ test.describe('GCal: console / pageerror 監視', () => {
     expect(real).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 接続設定 (OAuth クライアント ID) は「まだ連携できていないとき」だけ出す
+// （2026-08-29）。接続後は今日の予定を見るのが目的なので畳んでおく。
+test.describe('GCal: 接続設定の出し分け', () => {
+  const setup = (page) => page.locator('#gcal-setup');
+
+  test('未接続のうちはクライアント ID の欄が出ている', async ({ page }) => {
+    await gotoApp(page);
+    await expect(setup(page)).toBeVisible();
+    await expect(page.locator('#gcal-connect-btn')).toBeVisible();
+  });
+
+  test('接続できたら畳まれる', async ({ page }) => {
+    await connectWithStub(page, { seedItems: [] });
+    // connectWithStub は refresh ボタンが出るまで待つ = 接続済み
+    await expect(page.locator('#gcal-refresh-btn')).toBeVisible();
+    await expect(setup(page)).toBeHidden();
+  });
+});

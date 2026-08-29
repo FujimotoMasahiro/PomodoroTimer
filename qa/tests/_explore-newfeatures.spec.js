@@ -102,16 +102,41 @@ test.describe('探索: サイドバーのアコーディオン（今日の予定
     await expect(page.locator('#gtasks-list')).toHaveCount(0);
   });
 
-  test('設定を開くと入力欄が使える（証跡）', async ({ page }) => {
+  test('設定を開くと音源設定が使える（証跡）', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await gotoRaw(page);
 
     await page.locator('#panel-settings-toggle').click();
+    await expect(page.locator('#work-source')).toBeVisible();
+    await page.selectOption('#work-source', 'voicy');
+    await expect(page.locator('#voicy-url')).toBeVisible();
+    await page.locator('.settings-col').screenshot({ path: `${SHOT_DIR}/settings-panel.png` });
+  });
+
+  // カレンダーの接続設定は「今日の予定」側に置く（2026-08-29）。
+  // 設定パネルではなく、予定を見る場所で完結させるため。
+  test('OAuth クライアント ID の欄は「今日の予定」パネルの中にある', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await gotoRaw(page);
+
+    await expect(page.locator('#panel-today #gcal-client-id')).toHaveCount(1);
+    await expect(page.locator('#panel-settings #gcal-client-id')).toHaveCount(0);
+    // 今日の予定は既定で開いているので、そのまま入力できる
     const input = page.locator('#gcal-client-id');
     await expect(input).toBeVisible();
     await input.fill('xxxxxxxx.apps.googleusercontent.com');
     await expect(page.locator('#gcal-connect-btn')).toBeEnabled();
     await page.locator('.settings-col').screenshot({ path: `${SHOT_DIR}/gcal-input.png` });
+  });
+
+  // 触れない項目は置かない（2026-08-29 削除）
+  test('「今後バージョンアップにて〜」の無効フォームは無い', async ({ page }) => {
+    await gotoRaw(page);
+    await page.locator('#panel-settings-toggle').click();
+    await expect(page.locator('#settings-form')).toHaveCount(0);
+    await expect(page.locator('#work-duration')).toHaveCount(0);
+    await expect(page.locator('#mute-notifications')).toHaveCount(0);
+    await expect(page.locator('.settings-col')).not.toContainText('今後バージョンアップ');
   });
 });
 
