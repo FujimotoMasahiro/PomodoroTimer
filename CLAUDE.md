@@ -6,7 +6,7 @@
 - `index.html` … 画面。Bootstrap 5（CDN）。
 - `PomodoroTimerController.js` … 状態機械（`STATUS_ENUM`）・ボタン制御・音源切替・YouTube 再生リスト・Wake Lock・拡張モーダル。
 - `MusicManager.js` … `MusicManager`（audio 要素）/ `VoicyManager`（iframe）/ `YouTubeManager`（IFrame API）/ `LocalMediaManager`（ローカルの音源・動画。先頭を再生し終わったら末尾へ回す「ロケットえんぴつ式」）。
-- `extension/` … YouTube タブ一括追加の Chrome 拡張。
+- `extension/` … Chrome 拡張。YouTube タブの一括追加と、見終わった動画の再生履歴への記録 (履歴書き込み API は存在しないため、バックグラウンドタブで実再生する)。
 - `qa/` … QA / Playwright 一式（**アプリ本体ではない**）。`qa/README.md` 参照。
 
 ## 🔁 QAルール（必須・このリポジトリの取り決め）

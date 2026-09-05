@@ -39,7 +39,12 @@ const MUSIC_MANAGER3 = new MusicManager(document.getElementById('audioPlayer3'))
 const VOICY_MANAGER = new VoicyManager(document.getElementById('voicyContainer'));
 const YOUTUBE_MANAGER = new YouTubeManager(
     document.getElementById('youtubeContainer'),
-    { onVideoEnded: (videoId) => removeYouTubeUrlByVideoId(videoId) }
+    {
+        onVideoEnded: (videoId, durationSeconds) => {
+            removeYouTubeUrlByVideoId(videoId);
+            markYouTubeVideoWatched(videoId, durationSeconds);
+        },
+    }
 );
 
 // 音源設定 UI
@@ -348,6 +353,52 @@ if (youtubeListContainer) {
             youtubeListContainer.insertBefore(dragging, after);
         }
     });
+}
+
+// 見終わった動画を YouTube の再生履歴に「視聴済み」として記録する。
+//
+// YouTube Data API には再生履歴へ書き込む手段が無く、このページの IFrame 埋め込み
+// 再生はサードパーティ扱いのため履歴に残らない (実測済み)。そこで拡張機能に依頼し、
+// ログイン済みの youtube.com をバックグラウンドタブで開いて終盤だけミュート再生させ、
+// 終わったらタブを閉じる。これで本物の再生履歴に載り、サムネイルの赤い進捗バーも
+// 満タン (= 見終わった表示) になる。
+//
+// 拡張機能が未インストールなら何もしない (再生リストからの削除は従来どおり動く)。
+function markYouTubeVideoWatched(videoId, durationSeconds) {
+    if (!videoId) return;
+    if (!window.__POMODORO_YT_EXTENSION__) return;
+
+    const requestId = 'pomodoro-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    // 応答が返らないまま listener が残り続けないよう、上限時間で必ず外す。
+    const timeoutId = setTimeout(() => {
+        window.removeEventListener('message', onReply);
+        console.warn('[PomodoroTimer] 視聴済みマークの応答がありませんでした:', videoId);
+    }, 90000);
+
+    function onReply(ev) {
+        if (ev.source !== window) return;
+        const d = ev.data;
+        if (!d || d.__pomodoroYtResult !== true || d.requestId !== requestId) return;
+        clearTimeout(timeoutId);
+        window.removeEventListener('message', onReply);
+        if (d.ok) {
+            console.info('[PomodoroTimer] 再生履歴に記録しました:', videoId, d.detail);
+        } else {
+            console.warn('[PomodoroTimer] 再生履歴への記録に失敗しました:', videoId, d);
+        }
+    }
+
+    window.addEventListener('message', onReply);
+    window.postMessage(
+        {
+            __pomodoroYt: true,
+            type: 'MARK_WATCHED',
+            videoId,
+            durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : null,
+            requestId,
+        },
+        '*'
+    );
 }
 
 // 動画再生終了時に該当 URL 行を入力欄から取り除く。

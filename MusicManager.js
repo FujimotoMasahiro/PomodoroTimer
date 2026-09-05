@@ -471,11 +471,20 @@ export class YouTubeManager {
         // YT.PlayerState.ENDED === 0 (動画が最後まで再生されたとき)
         if (event && event.data === 0) {
             const endedId = this.currentVideoId;
+            // 尺は _advance() で次の動画に差し替わる前に読んでおく
+            // (視聴済みマークで「終端の何秒手前から再生するか」の算出に使う)。
+            let endedDuration = null;
+            try {
+                if (this.player && typeof this.player.getDuration === 'function') {
+                    const d = this.player.getDuration();
+                    if (Number.isFinite(d) && d > 0) endedDuration = d;
+                }
+            } catch (_) { /* プレイヤー未準備時は null のまま */ }
             // 最後まで再生し切ったので保存位置は破棄 (次回は頭から再生)。
             this._clearSaved(endedId);
             this._advance();
             if (this.onVideoEnded && endedId) {
-                try { this.onVideoEnded(endedId); } catch (_) { /* UI 側エラーは握りつぶす */ }
+                try { this.onVideoEnded(endedId, endedDuration); } catch (_) { /* UI 側エラーは握りつぶす */ }
             }
         }
     }

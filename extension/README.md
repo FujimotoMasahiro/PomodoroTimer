@@ -1,7 +1,8 @@
 # PomodoroTimer YouTube Collector
 
-開いている YouTube 動画タブの URL を、PomodoroTimer の再生リストに一括追加し、
+開いている YouTube 動画タブの URL を PomodoroTimer の再生リストに一括追加し、
 追加が成功したタブは自動で閉じる Chrome 拡張機能 (Manifest V3)。
+あわせて、PomodoroTimer で見終わった動画を YouTube の再生履歴に記録する。
 
 対象 PomodoroTimer: <https://fujimotomasahiro.github.io/PomodoroTimer/>
 
@@ -40,13 +41,50 @@
   `window.__POMODORO_YT_EXTENSION__ = { installed: true, version }` を立てる。
   PomodoroTimer ページはこれを見て、未インストール時にインストール案内モーダルを表示する。
 
+## 視聴済みマーク (再生履歴への記録)
+
+PomodoroTimer で動画を最後まで再生すると、その動画を YouTube の再生履歴に
+「視聴済み」として記録する。
+
+### なぜ拡張機能が必要か
+
+- **YouTube Data API v3 には再生履歴へ書き込む手段が存在しない。**
+  API リファレンスに履歴のリソース/メソッドが無く、かつて `channels.list` が返した
+  `relatedPlaylists.watchHistory` も現在の公式ドキュメントから記載が削除されている。
+- PomodoroTimer の IFrame 埋め込み再生はサードパーティ扱いのため履歴に残らない (実測)。
+
+したがって「ログイン済みの youtube.com 上で実際に再生する」しかなく、
+そのためのタブ操作は拡張機能でしか行えない。
+
+### 動作仕様
+
+1. ページ側が `window.postMessage({ __pomodoroYt: true, type: 'MARK_WATCHED', ... })` を送る
+2. `relay.js` (ISOLATED world) が受けて service worker に転送する
+3. service worker が `chrome.tabs.create({ active: false })` で
+   `watch?v=<id>&t=<尺-20秒>` をバックグラウンドタブとして開く
+4. タブをミュートし、`<video>` を `muted = true` にしてから `play()` を呼ぶ
+   (ミュート再生は Chrome の autoplay policy で無条件に許可されるため、
+   非表示タブで自動再生がブロックされても確実に再生できる)
+5. 終端に到達したら即 pause してタブを閉じる (次の動画の自動再生を防ぐ)
+
+### 実測メモ
+
+- **終端まで再生し切らないとサムネイルの赤い進捗バーが伸びない。**
+  途中で止めると履歴には載るが「見終わった」表示にならないため、
+  開始位置を `尺 - MARK_TAIL_SECONDS` にして最後まで再生させている。
+- **履歴ページへの反映には数十秒〜数分の遅延がある。**
+  再生直後に確認すると進捗バーが最小幅 (13% 相当) のままに見えるが、
+  時間を置くと満タンになる。直後の値で判断しないこと。
+- 複数本が同時に走らないよう service worker 側で直列化している。
+
 ## ファイル構成
 
 ```
 extension/
 ├── manifest.json  # MV3 マニフェスト
-├── background.js  # service worker (アイコンクリック処理)
-├── content.js     # PomodoroTimer ページに注入されるインストールマーカー
+├── background.js  # service worker (アイコンクリック処理 / 視聴済みマーク)
+├── content.js     # PomodoroTimer ページに注入されるインストールマーカー (MAIN world)
+├── relay.js       # ページ ⇔ service worker の橋渡し (ISOLATED world)
 ├── icons/         # 拡張アイコン (16/48/128)
 └── README.md      # このファイル
 ```
