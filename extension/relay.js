@@ -7,7 +7,6 @@
 // ページ側 → 拡張:
 //   window.postMessage({ __pomodoroYt: true, type: 'MARK_WATCHED',
 //                        videoId, durationSeconds, requestId }, '*')
-//   window.postMessage({ __pomodoroYt: true, type: 'COLLECT_YT_TABS', requestId }, '*')
 // 拡張 → ページ側:
 //   window.postMessage({ __pomodoroYtResult: true, requestId, ok, detail }, '*')
 
@@ -15,8 +14,7 @@ window.addEventListener('message', (ev) => {
     // 同一ウィンドウ発の自前メッセージだけを受ける (他オリジンの iframe を無視)
     if (ev.source !== window) return;
     const data = ev.data;
-    if (!data || data.__pomodoroYt !== true) return;
-    if (data.type !== 'MARK_WATCHED' && data.type !== 'COLLECT_YT_TABS') return;
+    if (!data || data.__pomodoroYt !== true || data.type !== 'MARK_WATCHED') return;
 
     const reply = (payload) => {
         window.postMessage(
@@ -26,15 +24,12 @@ window.addEventListener('message', (ev) => {
     };
 
     try {
-        const message = data.type === 'COLLECT_YT_TABS'
-            ? { type: 'COLLECT_YT_TABS' }
-            : {
+        chrome.runtime
+            .sendMessage({
                 type: 'MARK_WATCHED',
                 videoId: data.videoId,
                 durationSeconds: data.durationSeconds,
-            };
-        chrome.runtime
-            .sendMessage(message)
+            })
             .then((res) => reply({ ok: !!(res && res.ok), detail: res || null }))
             .catch((e) => reply({ ok: false, error: String((e && e.message) || e) }));
     } catch (e) {
