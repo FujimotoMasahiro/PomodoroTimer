@@ -36,6 +36,7 @@ spec 対応表:
 | タイマーの状態機械・ボタン | `01-timer-buttons` / `04-timer-drift` |
 | 音源切替・BGM | `02-audio-sources` / `10-bgm-playback-rate-lock` |
 | YouTube 再生リスト・モード | `03-youtube-queue` / `05-youtube-mode-progress` |
+| YouTube タブ取り込みボタン・拡張の relay | `14-yt-collect-button`（再生リストも触るなら `03-youtube-queue`） |
 | カレンダーの描画・チェック | `06-gcal-checklist` / `09-gcal-fixes` / `12-gcal-birthday-event` |
 | カレンダーの認証・トークン | `07-gcal-auth-persist` / `11-gcal-silent-auth` / `08-gcal-nomock-smoke` |
 | ローカルファイル再生・一覧 | `13-local-media`（音源切替も触るなら `02-audio-sources`） |

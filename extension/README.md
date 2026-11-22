@@ -29,7 +29,20 @@
    (対応 URL: `youtube.com/watch?v=`, `m.youtube.com/watch?v=`, `youtu.be/...`)
 2. PomodoroTimer タブをアクティブにする
 3. ツールバーの拡張アイコンをクリック
+   (または、設定の「YouTube 再生リスト」右にある **「開いているYouTube動画を取り込む」** ボタンを押す)
 4. 再生リストに URL が追加され、対象 YouTube タブが閉じられる
+
+### ページ内ボタン (0.3.0〜)
+
+ページ内ボタンは `relay.js` 経由で service worker に `COLLECT_YT_TABS` を送り、
+アイコンクリックと同じ処理 (`collectYouTubeTabs`) を実行する。結果は通知ではなく
+ボタンの下に表示する。拡張が未インストールならインストール案内モーダルを、
+0.3.0 より古い拡張 (`window.__POMODORO_YT_EXTENSION__.features` に `collect` が無い)
+なら更新の案内を表示する。
+
+**更新時の注意:** 開発者モードで読み込んでいる場合、リポジトリを pull したあと
+`chrome://extensions/` で本拡張の「再読み込み」ボタンを押し、PomodoroTimer タブも
+再読み込みする。
 
 ## 動作仕様
 
@@ -87,7 +100,7 @@ PomodoroTimer で動画を最後まで再生すると、その動画を YouTube 
 ```
 extension/
 ├── manifest.json  # MV3 マニフェスト
-├── background.js  # service worker (アイコンクリック処理 / 視聴済みマーク)
+├── background.js  # service worker (YouTube タブ取り込み / 視聴済みマーク)
 ├── content.js     # PomodoroTimer ページに注入されるインストールマーカー (MAIN world)
 ├── relay.js       # ページ ⇔ service worker の橋渡し (ISOLATED world)
 ├── icons/         # 拡張アイコン (16/48/128)
