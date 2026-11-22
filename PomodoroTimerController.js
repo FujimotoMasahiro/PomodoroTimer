@@ -1183,7 +1183,8 @@ document.addEventListener('visibilitychange', () => {
 
 // ----------------------------------------------------------------------------
 // YouTube のワイプ表示 (Document Picture-in-Picture)
-// 別タブで作業中も動画を最前面の小窓で見られるようにする。
+// 別タブで作業中も動画を最前面の小窓で見られるようにする。再生 (音・キュー) は
+// このページのプレイヤーのまま、小窓はミュートの表示専用プレイヤーで追従する。
 // - 「ワイプで表示」ボタン: 押しておけばタブを切り替えても小窓が残る。
 // - タブ切替時の自動表示: ブラウザはユーザー操作なしで小窓を開かせないため、
 //   (1) 直前にページ内をクリックしていた場合 (リンクで別タブを開いた等) と
@@ -1201,7 +1202,7 @@ function updateYouTubePipButton(open) {
     ytPipButton.textContent = open ? 'ワイプを閉じる' : 'ワイプで表示';
     ytPipButton.classList.toggle('btn-secondary', open);
     ytPipButton.classList.toggle('btn-outline-secondary', !open);
-    if (ytPipNote) ytPipNote.textContent = open ? '小窓で再生中です。閉じるとこの画面の続きから再生します。' : YT_PIP_NOTE_DEFAULT;
+    if (ytPipNote) ytPipNote.textContent = open ? '小窓に表示中です（再生・音はこの画面のまま）。' : YT_PIP_NOTE_DEFAULT;
 }
 
 if (YouTubeManager.isPipSupported()) {

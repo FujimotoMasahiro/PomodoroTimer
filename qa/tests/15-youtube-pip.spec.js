@@ -1,8 +1,9 @@
 // YouTube のワイプ表示 (Document Picture-in-Picture) の検証。
 //  - 対応ブラウザでのみ「ワイプで表示」ボタンを出す
-//  - ボタンで小窓 (pip.html) を開き、メインを一時停止して同じ動画を続きから再生する
-//  - 小窓が開いている間の一時停止・動画終了→次の動画は小窓側に効く
-//  - 小窓を閉じると小窓の再生位置からメイン側で再開する
+//  - 小窓は「表示だけ」: 再生 (音・キュー・一時停止) はメインのプレイヤーのまま、
+//    小窓 (pip.html) にはミュートのプレイヤーを置いてメイン側に追従させる
+//    (動画の差し替え・再生/一時停止・位置ずれの補正)
+//  - 小窓を閉じてもメイン側の再生には影響しない
 //  - タブ切替 (hidden) で自動で開いた小窓は、タブに戻ると閉じる
 // 実 YouTube / 実 PiP は使えないため、iframe_api をフェイクに差し替え、
 // documentPictureInPicture.requestWindow は「ページ内の about:blank iframe の window を返す」
@@ -44,6 +45,8 @@ const FAKE_IFRAME_API = `
     this.videoId = o.videoId; this.t = o.startSeconds || 0; this.calls.push('cue:' + o.videoId + '@' + Math.floor(this.t)); this._set(5);
   };
   Player.prototype.getCurrentTime = function () { return this.t; };
+  Player.prototype.seekTo = function (t) { this.t = t; this.calls.push('seek:' + Math.floor(t)); };
+  Player.prototype.getVideoData = function () { return { video_id: this.videoId }; };
   Player.prototype.getPlayerState = function () { return this.state; };
   Player.prototype.getDuration = function () { return 300; };
   Player.prototype.getVolume = function () { return this.volume; };
@@ -116,52 +119,69 @@ test.describe('YouTube ワイプ表示 (Document PiP)', () => {
     await expect(page.locator('#yt-pip-btn')).toBeHidden();
   });
 
-  test('ボタンで小窓を開き、メインを止めて続きから再生 → 閉じるとメインで続きから再開', async ({ page }) => {
+  test('ボタンで小窓を開く: メインは再生を続け、小窓はミュート・操作不可で同じ位置を表示', async ({ page }) => {
     await setupYouTubePlaying(page);
     const btn = page.locator('#yt-pip-btn');
     await expect(btn).toBeVisible();
     await btn.click();
-    await expect.poll(() => pipPlayer(page)).not.toBeNull();
-    await expect.poll(async () => (await pipPlayer(page)).state).toBe(1);
+
+    await expect.poll(async () => (await pipPlayer(page))?.state).toBe(1);
     const pip = await pipPlayer(page);
     expect(pip.videoId).toBe(ID_A);
     expect(pip.start).toBe(42);
-    // 小窓は同一オリジンの pip.html を読み込んでいる (about:blank 直埋めはエラー 153 になるため)
-    const src = await page.evaluate(() => window.documentPictureInPicture.window.document.querySelector('iframe').src);
-    expect(src).toMatch(/\/pip\.html$/);
-    // メインは一時停止
-    expect((await mainPlayer(page)).state).toBe(2);
+    const vars = await page.evaluate(() => window.__ytPlayers.find((x) => x.inPip).opts.playerVars);
+    expect(vars.mute).toBe(1);
+    expect(vars.controls).toBe(0);
+    // 小窓は同一オリジンの pip.html を読み込み (about:blank 直埋めはエラー 153)、クリックは受け付けない
+    const frame = await page.evaluate(() => {
+      const f = window.documentPictureInPicture.window.document.querySelector('iframe');
+      return { src: f.src, pe: window.documentPictureInPicture.window.getComputedStyle(f).pointerEvents };
+    });
+    expect(frame.src).toMatch(/\/pip\.html$/);
+    expect(frame.pe).toBe('none');
+    // メインは止めずに再生し続ける (再生の主体はメイン)
+    const main = await mainPlayer(page);
+    expect(main.state).toBe(1);
+    expect(main.calls).not.toContain('pause');
     await expect(btn).toHaveText('ワイプを閉じる');
 
-    // 小窓で 100 秒まで進めてから閉じる
-    await page.evaluate(() => { window.__ytPlayers.find((x) => x.inPip).t = 100; });
+    // 閉じてもメインはそのまま (読み込み直し・一時停止しない)
     await btn.click();
     await expect(btn).toHaveText('ワイプで表示');
     await expect(page.locator('#__fake-pip')).toHaveCount(0);
-    const main = await mainPlayer(page);
-    expect(main.calls).toContain(`load:${ID_A}@100`);
-    expect(main.state).toBe(1);
+    const after = await mainPlayer(page);
+    expect(after.state).toBe(1);
+    expect(after.calls.filter((c) => c.startsWith('load:') || c.startsWith('cue:'))).toEqual(main.calls.filter((c) => c.startsWith('load:') || c.startsWith('cue:')));
   });
 
-  test('小窓表示中の一時停止・動画終了は小窓側に効き、次の動画へ進む', async ({ page }) => {
+  test('小窓はメインに追従する: 一時停止・再開・位置ずれ・次の動画', async ({ page }) => {
     await setupYouTubePlaying(page);
     await page.click('#yt-pip-btn');
     await expect.poll(async () => (await pipPlayer(page))?.state).toBe(1);
 
-    // タイマーの一時停止 → 小窓側が止まる
+    // タイマーの一時停止 → メインが止まり、小窓も止まる
     await page.click('#pause-btn');
+    await expect.poll(async () => (await mainPlayer(page)).state).toBe(2);
     await expect.poll(async () => (await pipPlayer(page)).state).toBe(2);
     await page.click('#restart-btn');
     await expect.poll(async () => (await pipPlayer(page)).state).toBe(1);
 
-    // 小窓で動画 A が終了 → 小窓で B を読み込み、一覧から A が消える
-    await page.evaluate(() => window.__ytPlayers.find((x) => x.inPip)._set(0));
+    // メインが先へ進んだ (ずれ > 1.5 秒) → 小窓が seek して合わせる
+    await page.evaluate(() => { window.__ytPlayers[0].t = 120; });
+    await expect.poll(async () => (await pipPlayer(page)).t).toBe(120);
+
+    // メインで動画 A が終了 → メインが B へ進み、小窓も B を表示
+    await page.evaluate(() => window.__ytPlayers[0]._set(0));
+    await expect.poll(async () => (await mainPlayer(page)).videoId).toBe(ID_B);
     await expect.poll(async () => (await pipPlayer(page)).videoId).toBe(ID_B);
     await expect(page.locator('#youtube-url-list input[type="url"]').first()).toHaveValue(URL_B);
 
-    // 小窓を × で閉じた (pagehide) → メインは B の続きから
-    await page.evaluate(() => { window.__ytPlayers.find((x) => x.inPip).t = 7; window.documentPictureInPicture.window.close(); });
-    await expect.poll(async () => (await mainPlayer(page)).calls).toContain(`load:${ID_B}@7`);
+    // 小窓側の終了イベントはキューを動かさない (再生の主体はメイン)
+    const before = (await mainPlayer(page)).calls.length;
+    await page.evaluate(() => window.__ytPlayers.find((x) => x.inPip)._set(0));
+    await page.waitForTimeout(300);
+    expect((await mainPlayer(page)).videoId).toBe(ID_B);
+    expect((await mainPlayer(page)).calls.length).toBe(before);
   });
 
   test('タブ切替で自動表示した小窓はタブに戻ると閉じる / 操作なしで開けない場合は何もしない', async ({ page }) => {
@@ -179,14 +199,13 @@ test.describe('YouTube ワイプ表示 (Document PiP)', () => {
     expect(await pipPlayer(page)).toBeNull();
     await setVisibility('visible');
 
-    // 開ける場合 → 自動で開き、戻ると閉じてメインで続きから
+    // 開ける場合 → 自動で開き、戻ると閉じる。メインは再生しっぱなし
     await page.evaluate(() => { window.__pipAllow = true; });
     await setVisibility('hidden');
     await expect.poll(async () => (await pipPlayer(page))?.state).toBe(1);
-    await page.evaluate(() => { window.__ytPlayers.find((x) => x.inPip).t = 55; });
     await setVisibility('visible');
     await expect(page.locator('#__fake-pip')).toHaveCount(0);
-    expect((await mainPlayer(page)).calls).toContain(`load:${ID_A}@55`);
+    expect((await mainPlayer(page)).state).toBe(1);
   });
 
   test('ボタンで開いた小窓はタブに戻っても閉じない', async ({ page }) => {
