@@ -6,6 +6,7 @@
 - `index.html` … 画面。Bootstrap 5（CDN）。
 - `PomodoroTimerController.js` … 状態機械（`STATUS_ENUM`）・ボタン制御・音源切替・YouTube 再生リスト・Wake Lock・拡張モーダル。
 - `MusicManager.js` … `MusicManager`（audio 要素）/ `VoicyManager`（iframe）/ `YouTubeManager`（IFrame API）/ `LocalMediaManager`（ローカルの音源・動画。先頭を再生し終わったら末尾へ回す「ロケットえんぴつ式」）。
+- `pip.html` … YouTube のワイプ表示 (Document Picture-in-Picture) の小窓に読み込む中継ページ。小窓は about:blank 扱いで YouTube を直接埋め込むとエラー 153 になるため、同一オリジンのこのページの中で再生する。
 - `extension/` … Chrome 拡張。YouTube タブの一括追加と、見終わった動画の再生履歴への記録 (履歴書き込み API は存在しないため、バックグラウンドタブで実再生する)。
 - `qa/` … QA / Playwright 一式（**アプリ本体ではない**）。`qa/README.md` 参照。
 
@@ -38,6 +39,7 @@ spec 対応表:
 | YouTube 再生リスト・モード | `03-youtube-queue` / `05-youtube-mode-progress` |
 | カレンダーの描画・チェック | `06-gcal-checklist` / `09-gcal-fixes` / `12-gcal-birthday-event` |
 | カレンダーの認証・トークン | `07-gcal-auth-persist` / `11-gcal-silent-auth` / `08-gcal-nomock-smoke` |
+| YouTube のワイプ表示 (PiP)・`pip.html` | `15-youtube-pip`（再生キューも触るなら `03-youtube-queue` / `05-youtube-mode-progress`） |
 | ローカルファイル再生・一覧 | `13-local-media`（音源切替も触るなら `02-audio-sources`） |
 | 画面レイアウト・サイドバー | `_explore-newfeatures` |
 

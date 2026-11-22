@@ -44,6 +44,7 @@ const YOUTUBE_MANAGER = new YouTubeManager(
             removeYouTubeUrlByVideoId(videoId);
             markYouTubeVideoWatched(videoId, durationSeconds);
         },
+        onPipChange: (open) => updateYouTubePipButton(open),
     }
 );
 
@@ -1178,6 +1179,57 @@ document.addEventListener('visibilitychange', () => {
         timer();
     }
 });
+
+
+// ----------------------------------------------------------------------------
+// YouTube のワイプ表示 (Document Picture-in-Picture)
+// 別タブで作業中も動画を最前面の小窓で見られるようにする。
+// - 「ワイプで表示」ボタン: 押しておけばタブを切り替えても小窓が残る。
+// - タブ切替時の自動表示: ブラウザはユーザー操作なしで小窓を開かせないため、
+//   (1) 直前にページ内をクリックしていた場合 (リンクで別タブを開いた等) と
+//   (2) Chrome の「自動ピクチャー イン ピクチャー」(mediaSession の
+//       enterpictureinpicture) が働く場合だけ自動で開く。自動で開いた小窓は
+//   タブに戻ると閉じる。
+// ----------------------------------------------------------------------------
+const ytPipRow = document.getElementById('yt-pip-row');
+const ytPipButton = document.getElementById('yt-pip-btn');
+const ytPipNote = document.getElementById('yt-pip-note');
+const YT_PIP_NOTE_DEFAULT = ytPipNote ? ytPipNote.textContent : '';
+
+function updateYouTubePipButton(open) {
+    if (!ytPipButton) return;
+    ytPipButton.textContent = open ? 'ワイプを閉じる' : 'ワイプで表示';
+    ytPipButton.classList.toggle('btn-secondary', open);
+    ytPipButton.classList.toggle('btn-outline-secondary', !open);
+    if (ytPipNote) ytPipNote.textContent = open ? '小窓で再生中です。閉じるとこの画面の続きから再生します。' : YT_PIP_NOTE_DEFAULT;
+}
+
+if (YouTubeManager.isPipSupported()) {
+    if (ytPipRow) ytPipRow.style.removeProperty('display');
+    if (ytPipButton) ytPipButton.addEventListener('click', async () => {
+        if (!YOUTUBE_MANAGER.isPipOpen() && !YOUTUBE_MANAGER.currentVideoId) {
+            if (ytPipNote) ytPipNote.textContent = '動画の再生が始まってから押してください。';
+            return;
+        }
+        await YOUTUBE_MANAGER.togglePip();
+    });
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+            if (YOUTUBE_MANAGER.isPlaying()) YOUTUBE_MANAGER.openPip({ auto: true });
+        } else {
+            YOUTUBE_MANAGER.closeAutoOpenedPip();
+        }
+    });
+
+    try {
+        if ('mediaSession' in navigator) {
+            navigator.mediaSession.setActionHandler('enterpictureinpicture', () => {
+                if (YOUTUBE_MANAGER.isPlaying()) YOUTUBE_MANAGER.openPip({ auto: true });
+            });
+        }
+    } catch (_) { /* 未対応ブラウザでは登録できないので無視 */ }
+}
 
 
 // タイマー設定

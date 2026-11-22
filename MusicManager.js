@@ -286,6 +286,179 @@ export class YouTubeManager {
         this.progressKey = options.progressKey || 'pomodoro_youtube_progress';
         this._progressIntervalMs = 10000; // 10 秒ごとに現在位置を記録
         this._progressTimer = null;
+        // ワイプ (Document Picture-in-Picture) 表示。
+        // 開いている間は this.player を小窓側のプレイヤーに差し替え、メイン側は
+        // this._mainPlayer に退避して一時停止しておく。こうすると再生/一時停止/
+        // 次の動画への切替など既存の処理がそのまま小窓側に効く。
+        this.pipPageUrl = options.pipPageUrl || 'pip.html';
+        this.onPipChange = typeof options.onPipChange === 'function' ? options.onPipChange : null;
+        this._pipWindow = null;
+        this._mainPlayer = null;
+        this._pipOpening = false;
+        this._pipAutoOpened = false;
+    }
+
+    // ---- ワイプ (Document Picture-in-Picture) ----------------------------------
+    // YouTube の埋め込み iframe は親ページから標準の動画 PiP を使えないため、
+    // Document PiP の小窓に同一オリジンの pip.html を読み込み、そこで同じ動画を
+    // 続きから再生する。小窓を開けるのは Chrome / Edge / Brave 116 以降のみ。
+    // また小窓を開くにはユーザー操作 (クリック等) が必要 (ブラウザの仕様)。
+
+    static isPipSupported() {
+        return typeof window !== 'undefined' && 'documentPictureInPicture' in window;
+    }
+
+    isPipOpen() {
+        return !!this._pipWindow;
+    }
+
+    // 再生中 (または読み込み中) か。タブ切替時の自動ワイプ判定に使う。
+    isPlaying() {
+        try {
+            const s = this.player && typeof this.player.getPlayerState === 'function'
+                ? this.player.getPlayerState() : null;
+            return s === 1 || s === 3; // PLAYING / BUFFERING
+        } catch (_) { return false; }
+    }
+
+    async togglePip() {
+        if (this.isPipOpen()) { this.closePip(); return false; }
+        return this.openPip();
+    }
+
+    /**
+     * ワイプを開く。成功したら true。
+     * @param {object} opts { auto: タブ切替などで自動的に開いた場合 true (戻ったら自動で閉じる) }
+     */
+    async openPip(opts = {}) {
+        if (this._pipWindow || this._pipOpening) return !!this._pipWindow;
+        if (!YouTubeManager.isPipSupported()) return false;
+        const main = this.player;
+        const videoId = this.currentVideoId;
+        if (!main || !videoId) return false;
+
+        // requestWindow はユーザー操作の直後にしか成功しないので、await より前に呼ぶ。
+        this._pipOpening = true;
+        let pipWindow;
+        try {
+            pipWindow = await window.documentPictureInPicture.requestWindow({ width: 480, height: 270 });
+        } catch (_) {
+            this._pipOpening = false;
+            return false;
+        }
+
+        // メイン側の状態を引き継ぐ (位置・再生中か・音量)
+        let startSeconds = 0, wasPlaying = true, volume = null, muted = false;
+        try {
+            const t = main.getCurrentTime();
+            if (Number.isFinite(t) && t > 0) startSeconds = t;
+            const st = main.getPlayerState();
+            wasPlaying = (st === 1 || st === 3 || st === -1 || st === 5);
+            volume = main.getVolume();
+            muted = main.isMuted();
+        } catch (_) { /* API 未準備時は既定値 */ }
+
+        this._pipWindow = pipWindow;
+        this._pipAutoOpened = !!opts.auto;
+        try { if (typeof main.pauseVideo === 'function') main.pauseVideo(); } catch (_) {}
+        this._mainPlayer = main;
+
+        try {
+            const doc = pipWindow.document;
+            doc.title = 'YouTube ワイプ';
+            const style = doc.createElement('style');
+            style.textContent = 'html,body{margin:0;height:100%;background:#000;overflow:hidden}iframe{width:100%;height:100%;border:0;display:block}';
+            doc.head.appendChild(style);
+            const frame = doc.createElement('iframe');
+            frame.allow = 'autoplay; encrypted-media; fullscreen';
+            frame.src = new URL(this.pipPageUrl, document.baseURI).href;
+            doc.body.appendChild(frame);
+            pipWindow.addEventListener('pagehide', () => this._onPipClosed(pipWindow), { once: true });
+
+            await new Promise((resolve) => frame.addEventListener('load', resolve, { once: true }));
+            if (this._pipWindow !== pipWindow) return false; // 読み込み中に閉じられた
+            const fw = frame.contentWindow;
+            const YTp = await fw.ytReady;
+            if (this._pipWindow !== pipWindow) return false;
+
+            const target = fw.document.getElementById('pip-player');
+            const pipPlayer = new YTp.Player(target, {
+                height: '100%',
+                width: '100%',
+                videoId,
+                playerVars: { rel: 0, modestbranding: 1, playsinline: 1, start: Math.floor(startSeconds), autoplay: wasPlaying ? 1 : 0 },
+                events: {
+                    onReady: (e) => {
+                        const p = e && e.target;
+                        if (!p) return;
+                        try {
+                            if (typeof volume === 'number' && p.setVolume) p.setVolume(volume);
+                            if (muted && p.mute) p.mute();
+                        } catch (_) {}
+                        if (wasPlaying && typeof p.playVideo === 'function') p.playVideo();
+                    },
+                    onStateChange: (e) => { if (this.player === pipPlayer) this._onStateChange(e); },
+                },
+            });
+            this.player = pipPlayer;
+        } catch (err) {
+            console.warn('[YouTubeManager] ワイプの表示に失敗しました:', err);
+            try { pipWindow.close(); } catch (_) {}
+            this._onPipClosed(pipWindow);
+            return false;
+        } finally {
+            this._pipOpening = false;
+        }
+        if (this.onPipChange) { try { this.onPipChange(true); } catch (_) {} }
+        return true;
+    }
+
+    closePip() {
+        const w = this._pipWindow;
+        if (!w) return;
+        try { w.close(); } catch (_) {}
+        // pagehide が来ない環境に備えて直接後始末する (二重実行は _onPipClosed 側で無視)
+        this._onPipClosed(w);
+    }
+
+    // タブに戻ってきたとき、自動で開いたワイプだけを閉じる。
+    closeAutoOpenedPip() {
+        if (this._pipWindow && this._pipAutoOpened) this.closePip();
+    }
+
+    // 小窓が閉じられた (×ボタン・タブに戻るボタン・closePip) ときの後始末。
+    // 小窓側の再生位置からメイン側で再開する。
+    _onPipClosed(pipWindow) {
+        if (!pipWindow || this._pipWindow !== pipWindow) return;
+        const pipPlayer = this.player;
+        const main = this._mainPlayer;
+        this._pipWindow = null;
+        this._mainPlayer = null;
+        this._pipAutoOpened = false;
+
+        let t = 0, playing = false;
+        if (pipPlayer && pipPlayer !== main) {
+            try {
+                const ct = pipPlayer.getCurrentTime();
+                if (Number.isFinite(ct) && ct > 0) t = ct;
+                const st = pipPlayer.getPlayerState();
+                playing = (st === 1 || st === 3);
+            } catch (_) { /* 小窓が先に破棄された場合は位置不明 */ }
+            try { if (typeof pipPlayer.destroy === 'function') pipPlayer.destroy(); } catch (_) {}
+        }
+        if (main) {
+            this.player = main;
+            const videoId = this.currentVideoId;
+            if (videoId && t > 0) this._saveSeconds(videoId, t);
+            try {
+                if (videoId) {
+                    const startSeconds = t > 0 ? t : this.getSavedSeconds(videoId);
+                    if (playing) main.loadVideoById({ videoId, startSeconds });
+                    else main.cueVideoById({ videoId, startSeconds });
+                }
+            } catch (_) { /* メイン側 API 未準備は無視 */ }
+        }
+        if (this.onPipChange) { try { this.onPipChange(false); } catch (_) {} }
     }
 
     // ---- 再生位置の永続化 (localStorage) --------------------------------------
