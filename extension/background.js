@@ -1,18 +1,18 @@
-// 開いている YouTube watch タブを PomodoroTimer の再生リストへ取り込むメイン処理。
-// 拡張アイコンのクリックと、ページ内の「開いているYouTube動画を取り込む」ボタン
-// (relay.js 経由の COLLECT_YT_TABS メッセージ) の両方から呼ばれる。
-// pomodoroTabId のタブのページ側フック window.PomodoroTimer.addYouTubeUrls() に
-// URL を渡し、追加成功した場合は対象の YouTube タブを閉じる。
-// 返り値: { ok, added, closed, message }
-async function collectYouTubeTabs(pomodoroTabId) {
-    // 1. 対象タブが PomodoroTimer かをフックの存在で判定。
+// 拡張アイコンクリック時のメイン処理。
+// アクティブタブが PomodoroTimer なら、開いている全 YouTube watch タブの URL を
+// ページ側フック window.PomodoroTimer.addYouTubeUrls() に渡し、追加成功した
+// 場合は対象の YouTube タブを閉じる。
+chrome.action.onClicked.addListener(async (tab) => {
+    if (!tab || !tab.id) return;
+
+    // 1. アクティブタブが PomodoroTimer かをフックの存在で判定。
     //    フック window.PomodoroTimer.addYouTubeUrls はページ側スクリプトが
     //    MAIN world に立てているため、executeScript も world:'MAIN' で実行しないと
     //    isolated world の別 window が返ってきてフックが見えず誤判定する。
     let isPomodoroTab = false;
     try {
         const [result] = await chrome.scripting.executeScript({
-            target: { tabId: pomodoroTabId },
+            target: { tabId: tab.id },
             world: 'MAIN',
             func: () => typeof window?.PomodoroTimer?.addYouTubeUrls === 'function',
         });
@@ -22,7 +22,8 @@ async function collectYouTubeTabs(pomodoroTabId) {
     }
 
     if (!isPomodoroTab) {
-        return { ok: false, added: 0, closed: 0, message: 'PomodoroTimer タブをアクティブにしてから拡張アイコンを押してください。' };
+        notify('PomodoroTimer タブをアクティブにしてから拡張アイコンを押してください。');
+        return;
     }
 
     // 2. YouTube watch / shorts タブを列挙
@@ -37,7 +38,8 @@ async function collectYouTubeTabs(pomodoroTabId) {
     });
 
     if (ytTabs.length === 0) {
-        return { ok: true, added: 0, closed: 0, message: '開いている YouTube 動画タブが見つかりませんでした。' };
+        notify('開いている YouTube 動画タブが見つかりませんでした。');
+        return;
     }
 
     const urls = ytTabs.map((t) => t.url).filter(Boolean);
@@ -46,45 +48,24 @@ async function collectYouTubeTabs(pomodoroTabId) {
     let added = 0;
     try {
         const [injectResult] = await chrome.scripting.executeScript({
-            target: { tabId: pomodoroTabId },
+            target: { tabId: tab.id },
             world: 'MAIN',
             func: (urlList) => window.PomodoroTimer.addYouTubeUrls(urlList),
             args: [urls],
         });
         added = (injectResult && injectResult.result && injectResult.result.added) || 0;
     } catch (e) {
-        return { ok: false, added: 0, closed: 0, message: 'PomodoroTimer への URL 注入に失敗しました: ' + (e && e.message || e) };
+        notify('PomodoroTimer への URL 注入に失敗しました: ' + (e && e.message || e));
+        return;
     }
 
     // 4. 追加が 1 件でもあれば YouTube タブを閉じる
     if (added > 0) {
         await chrome.tabs.remove(ytTabs.map((t) => t.id));
-        return { ok: true, added, closed: ytTabs.length, message: `${added} 件の動画を追加し、${ytTabs.length} タブを閉じました。` };
+        notify(`${added} 件の動画を追加し、${ytTabs.length} タブを閉じました。`);
+    } else {
+        notify('追加できる新規 URL がありませんでした (重複/無効)。');
     }
-    return { ok: true, added: 0, closed: 0, message: '追加できる新規 URL がありませんでした (重複/無効)。' };
-}
-
-// 拡張アイコンクリック: アクティブタブを PomodoroTimer とみなして取り込み、結果を通知する。
-chrome.action.onClicked.addListener(async (tab) => {
-    if (!tab || !tab.id) return;
-    const res = await collectYouTubeTabs(tab.id);
-    notify(res.message);
-});
-
-// ページ内ボタンからの取り込み依頼 (relay.js 経由)。送信元タブ = PomodoroTimer タブ。
-// 結果はページ側で表示するため、ここでは通知を出さない。
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    if (!msg || msg.type !== 'COLLECT_YT_TABS') return undefined;
-    const tabId = sender && sender.tab && sender.tab.id;
-    if (!tabId) {
-        sendResponse({ ok: false, added: 0, closed: 0, message: '送信元タブを特定できませんでした。' });
-        return undefined;
-    }
-    collectYouTubeTabs(tabId).then(
-        sendResponse,
-        (e) => sendResponse({ ok: false, added: 0, closed: 0, message: String((e && e.message) || e) })
-    );
-    return true; // 非同期応答
 });
 
 function notify(message) {
