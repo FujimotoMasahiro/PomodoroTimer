@@ -287,13 +287,16 @@ export class YouTubeManager {
         this._progressIntervalMs = 10000; // 10 秒ごとに現在位置を記録
         this._progressTimer = null;
         // ワイプ (Document Picture-in-Picture) 表示。
-        // 開いている間は this.player を小窓側のプレイヤーに差し替え、メイン側は
-        // this._mainPlayer に退避して一時停止しておく。こうすると再生/一時停止/
-        // 次の動画への切替など既存の処理がそのまま小窓側に効く。
+        // 再生 (音・キュー・一時停止) はあくまでメインのプレイヤーが担い、小窓は
+        // 「表示だけ」。小窓側にはミュート・操作不可のプレイヤーを置き、メイン側の
+        // 動画・再生位置・再生/一時停止に定期的に追従させる。
         this.pipPageUrl = options.pipPageUrl || 'pip.html';
         this.onPipChange = typeof options.onPipChange === 'function' ? options.onPipChange : null;
         this._pipWindow = null;
-        this._mainPlayer = null;
+        this._pipPlayer = null;
+        this._pipSyncTimer = null;
+        this._pipSyncIntervalMs = 1000;
+        this._pipMaxDriftSec = 1.5; // これ以上ずれたら小窓側を seek して合わせる
         this._pipOpening = false;
         this._pipAutoOpened = false;
     }
@@ -333,9 +336,7 @@ export class YouTubeManager {
     async openPip(opts = {}) {
         if (this._pipWindow || this._pipOpening) return !!this._pipWindow;
         if (!YouTubeManager.isPipSupported()) return false;
-        const main = this.player;
-        const videoId = this.currentVideoId;
-        if (!main || !videoId) return false;
+        if (!this.player || !this.currentVideoId) return false;
 
         // requestWindow はユーザー操作の直後にしか成功しないので、await より前に呼ぶ。
         this._pipOpening = true;
@@ -346,31 +347,18 @@ export class YouTubeManager {
             this._pipOpening = false;
             return false;
         }
-
-        // メイン側の状態を引き継ぐ (位置・再生中か・音量)
-        let startSeconds = 0, wasPlaying = true, volume = null, muted = false;
-        try {
-            const t = main.getCurrentTime();
-            if (Number.isFinite(t) && t > 0) startSeconds = t;
-            const st = main.getPlayerState();
-            wasPlaying = (st === 1 || st === 3 || st === -1 || st === 5);
-            volume = main.getVolume();
-            muted = main.isMuted();
-        } catch (_) { /* API 未準備時は既定値 */ }
-
         this._pipWindow = pipWindow;
         this._pipAutoOpened = !!opts.auto;
-        try { if (typeof main.pauseVideo === 'function') main.pauseVideo(); } catch (_) {}
-        this._mainPlayer = main;
 
         try {
             const doc = pipWindow.document;
             doc.title = 'YouTube ワイプ';
             const style = doc.createElement('style');
-            style.textContent = 'html,body{margin:0;height:100%;background:#000;overflow:hidden}iframe{width:100%;height:100%;border:0;display:block}';
+            // 小窓は表示専用。クリックで小窓側だけ止まる等のずれを防ぐため操作を受け付けない。
+            style.textContent = 'html,body{margin:0;height:100%;background:#000;overflow:hidden}iframe{width:100%;height:100%;border:0;display:block;pointer-events:none}';
             doc.head.appendChild(style);
             const frame = doc.createElement('iframe');
-            frame.allow = 'autoplay; encrypted-media; fullscreen';
+            frame.allow = 'autoplay; encrypted-media';
             frame.src = new URL(this.pipPageUrl, document.baseURI).href;
             doc.body.appendChild(frame);
             pipWindow.addEventListener('pagehide', () => this._onPipClosed(pipWindow), { once: true });
@@ -381,36 +369,80 @@ export class YouTubeManager {
             const YTp = await fw.ytReady;
             if (this._pipWindow !== pipWindow) return false;
 
+            const m = this._mainSnapshot();
             const target = fw.document.getElementById('pip-player');
-            const pipPlayer = new YTp.Player(target, {
+            this._pipPlayer = new YTp.Player(target, {
                 height: '100%',
                 width: '100%',
-                videoId,
-                playerVars: { rel: 0, modestbranding: 1, playsinline: 1, start: Math.floor(startSeconds), autoplay: wasPlaying ? 1 : 0 },
+                videoId: m.videoId,
+                playerVars: {
+                    rel: 0, modestbranding: 1, playsinline: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3,
+                    mute: 1, autoplay: m.playing ? 1 : 0, start: Math.floor(m.time),
+                },
                 events: {
                     onReady: (e) => {
                         const p = e && e.target;
                         if (!p) return;
-                        try {
-                            if (typeof volume === 'number' && p.setVolume) p.setVolume(volume);
-                            if (muted && p.mute) p.mute();
-                        } catch (_) {}
-                        if (wasPlaying && typeof p.playVideo === 'function') p.playVideo();
+                        try { if (p.mute) p.mute(); } catch (_) {}
+                        this._syncPip();
                     },
-                    onStateChange: (e) => { if (this.player === pipPlayer) this._onStateChange(e); },
                 },
             });
-            this.player = pipPlayer;
+            this._pipSyncTimer = setInterval(() => this._syncPip(), this._pipSyncIntervalMs);
         } catch (err) {
             console.warn('[YouTubeManager] ワイプの表示に失敗しました:', err);
-            try { pipWindow.close(); } catch (_) {}
-            this._onPipClosed(pipWindow);
+            this.closePip();
             return false;
         } finally {
             this._pipOpening = false;
         }
         if (this.onPipChange) { try { this.onPipChange(true); } catch (_) {} }
         return true;
+    }
+
+    // メイン側プレイヤーの今の状態 (動画・位置・再生中か)。
+    _mainSnapshot() {
+        const snap = { videoId: this.currentVideoId, time: 0, playing: false };
+        const p = this.player;
+        if (!p) return snap;
+        try {
+            const t = p.getCurrentTime();
+            if (Number.isFinite(t) && t > 0) snap.time = t;
+            const st = p.getPlayerState();
+            snap.playing = (st === 1 || st === 3);
+        } catch (_) { /* API 未準備 */ }
+        return snap;
+    }
+
+    // 小窓側をメイン側に合わせる: 動画の差し替え・再生/一時停止・位置ずれの補正。
+    _syncPip() {
+        const pip = this._pipPlayer;
+        if (!pip || !this._pipWindow) return;
+        const m = this._mainSnapshot();
+        if (!m.videoId) return;
+        try {
+            if (typeof pip.getPlayerState !== 'function') return; // 小窓側の準備中
+            let pipVideoId = null;
+            try {
+                const data = typeof pip.getVideoData === 'function' ? pip.getVideoData() : null;
+                pipVideoId = (data && data.video_id) || null;
+            } catch (_) {}
+            if (pipVideoId && pipVideoId !== m.videoId) {
+                // メイン側が次の動画へ進んだ
+                if (m.playing) pip.loadVideoById({ videoId: m.videoId, startSeconds: m.time });
+                else pip.cueVideoById({ videoId: m.videoId, startSeconds: m.time });
+                return;
+            }
+            const st = pip.getPlayerState();
+            const pipPlaying = (st === 1 || st === 3);
+            if (m.playing && !pipPlaying) pip.playVideo();
+            if (!m.playing && pipPlaying) pip.pauseVideo();
+            const pt = pip.getCurrentTime();
+            if (Number.isFinite(pt) && Math.abs(pt - m.time) > this._pipMaxDriftSec) {
+                pip.seekTo(m.time, true);
+            }
+            if (typeof pip.isMuted === 'function' && !pip.isMuted()) pip.mute();
+        } catch (_) { /* 小窓側 API 未準備などは次回に持ち越し */ }
     }
 
     closePip() {
@@ -427,37 +459,15 @@ export class YouTubeManager {
     }
 
     // 小窓が閉じられた (×ボタン・タブに戻るボタン・closePip) ときの後始末。
-    // 小窓側の再生位置からメイン側で再開する。
+    // 再生はメイン側が続けているので、小窓側を片付けるだけ。
     _onPipClosed(pipWindow) {
         if (!pipWindow || this._pipWindow !== pipWindow) return;
-        const pipPlayer = this.player;
-        const main = this._mainPlayer;
         this._pipWindow = null;
-        this._mainPlayer = null;
         this._pipAutoOpened = false;
-
-        let t = 0, playing = false;
-        if (pipPlayer && pipPlayer !== main) {
-            try {
-                const ct = pipPlayer.getCurrentTime();
-                if (Number.isFinite(ct) && ct > 0) t = ct;
-                const st = pipPlayer.getPlayerState();
-                playing = (st === 1 || st === 3);
-            } catch (_) { /* 小窓が先に破棄された場合は位置不明 */ }
-            try { if (typeof pipPlayer.destroy === 'function') pipPlayer.destroy(); } catch (_) {}
-        }
-        if (main) {
-            this.player = main;
-            const videoId = this.currentVideoId;
-            if (videoId && t > 0) this._saveSeconds(videoId, t);
-            try {
-                if (videoId) {
-                    const startSeconds = t > 0 ? t : this.getSavedSeconds(videoId);
-                    if (playing) main.loadVideoById({ videoId, startSeconds });
-                    else main.cueVideoById({ videoId, startSeconds });
-                }
-            } catch (_) { /* メイン側 API 未準備は無視 */ }
-        }
+        if (this._pipSyncTimer) { clearInterval(this._pipSyncTimer); this._pipSyncTimer = null; }
+        const pip = this._pipPlayer;
+        this._pipPlayer = null;
+        if (pip) { try { if (typeof pip.destroy === 'function') pip.destroy(); } catch (_) {} }
         if (this.onPipChange) { try { this.onPipChange(false); } catch (_) {} }
     }
 
