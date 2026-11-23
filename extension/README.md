@@ -4,7 +4,7 @@
 追加が成功したタブは自動で閉じる Chrome 拡張機能 (Manifest V3)。
 あわせて、PomodoroTimer で見終わった動画を YouTube の再生履歴に記録する。
 
-対象 PomodoroTimer: <https://fujimotomasahiro.github.io/PomodoroTimer/>
+対象 PomodoroTimer: <https://pomodorotimer.manabicodelab.com/>（旧 URL <https://fujimotomasahiro.github.io/PomodoroTimer/> も対象）
 
 ## なぜ拡張機能か
 

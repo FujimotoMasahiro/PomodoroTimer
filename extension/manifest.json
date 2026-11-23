@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "PomodoroTimer YouTube Collector",
-    "version": "0.2.1",
+    "version": "0.2.2",
     "description": "開いている YouTube タブを PomodoroTimer の再生リストに一括追加し、見終わった動画を YouTube の再生履歴に記録する",
     "permissions": ["tabs", "scripting", "activeTab", "notifications"],
     "host_permissions": [
@@ -28,6 +28,7 @@
     "content_scripts": [
         {
             "matches": [
+                "https://pomodorotimer.manabicodelab.com/*",
                 "https://fujimotomasahiro.github.io/PomodoroTimer/*",
                 "http://localhost:5500/*",
                 "http://127.0.0.1:5500/*"
@@ -38,6 +39,7 @@
         },
         {
             "matches": [
+                "https://pomodorotimer.manabicodelab.com/*",
                 "https://fujimotomasahiro.github.io/PomodoroTimer/*",
                 "http://localhost:5500/*",
                 "http://127.0.0.1:5500/*"
