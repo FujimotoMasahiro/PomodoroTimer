@@ -1265,6 +1265,8 @@ let time = 0;
 let endTime = 0;
 
 let status;
+// スキップボタンで切り替え中かどうか (デスクトップ通知を出さないため)
+let skipInProgress = false;
 
 // メイン処理
 function main() {
@@ -1337,6 +1339,7 @@ function timer() {
                 // 開始→作業中
                 status = STATUS_ENUM.WORKING.rawValue;
                 statusElement.textContent = STATUS_ENUM.WORKING.string;
+                if (!skipInProgress) notifyPhaseChange(status);
                 break;
             case STATUS_ENUM.WORKING.rawValue:
                 // 長時間休憩のチェック
@@ -1349,6 +1352,7 @@ function timer() {
                     status = STATUS_ENUM.BREAKING.rawValue;
                     statusElement.textContent = STATUS_ENUM.BREAKING.string;
                 }
+                if (!skipInProgress) notifyPhaseChange(status);
                 break;
             default:
                 break;
@@ -1514,7 +1518,9 @@ skipButton.addEventListener('click', function () {
     time = 0;
     endTime = Date.now();
     clearInterval(intervalId);
-    timer();
+    // 画面を操作して切り替えたときはデスクトップ通知を出さない
+    skipInProgress = true;
+    try { timer(); } finally { skipInProgress = false; }
 });
 
 resetButton.addEventListener('click', function () {
@@ -1760,3 +1766,134 @@ window.PomodoroTimer.__rotateLocal = function (id) { rotateLocalItemToEnd(id); }
 
 main();
 updateActiveSourceDisplay();
+// ---------------------------------------------------------------------------
+// デスクトップ通知 (issue #26)
+// タイマーが終わって作業・休憩が切り替わったとき、タイマー音に加えて
+// Web Notifications API で通知を出す。設定のスイッチをオンにした操作で許可を求め、
+// 非対応・ブロック時はスイッチをオフに戻して理由を表示する (音だけで知らせる)。
+const NOTIFY_ENABLED_KEY = 'pomodoro_notifications_enabled';
+const notifyToggle = document.getElementById('notify-toggle');
+const notifyStatusEl = document.getElementById('notify-status');
+
+function notificationsSupported() {
+    return typeof window.Notification === 'function';
+}
+
+function loadNotifyEnabled() {
+    try { return localStorage.getItem(NOTIFY_ENABLED_KEY) === 'true'; } catch (_) { return false; }
+}
+
+function saveNotifyEnabled(on) {
+    try { localStorage.setItem(NOTIFY_ENABLED_KEY, on ? 'true' : 'false'); } catch (_) { /* 無視 */ }
+}
+
+function setNotifyStatus(text) {
+    if (notifyStatusEl) notifyStatusEl.textContent = text || '';
+}
+
+const NOTIFY_MSG_UNSUPPORTED = 'このブラウザはデスクトップ通知に対応していません。タイマー音だけでお知らせします。';
+const NOTIFY_MSG_DENIED = '通知がブロックされています。アドレスバー左のアイコンからこのサイトの「通知」を「許可」にしてから、もう一度オンにしてください。';
+
+// 表示中のスイッチを、保存値と現在の許可状態に合わせる
+function syncNotifyToggle() {
+    if (!notifyToggle) return;
+    if (!notificationsSupported()) {
+        notifyToggle.checked = false;
+        notifyToggle.disabled = true;
+        setNotifyStatus(NOTIFY_MSG_UNSUPPORTED);
+        return;
+    }
+    const perm = Notification.permission;
+    if (perm === 'denied') {
+        notifyToggle.checked = false;
+        // オンのつもりの人にだけ理由を見せる
+        setNotifyStatus(loadNotifyEnabled() ? NOTIFY_MSG_DENIED : '');
+        return;
+    }
+    // 'default' (未決定) のままオンが保存されていても、許可が出るまでは通知できない
+    notifyToggle.checked = loadNotifyEnabled() && perm === 'granted';
+    setNotifyStatus('');
+}
+
+if (notifyToggle) {
+    notifyToggle.addEventListener('change', async () => {
+        if (!notifyToggle.checked) {
+            saveNotifyEnabled(false);
+            setNotifyStatus('');
+            return;
+        }
+        if (!notificationsSupported()) {
+            syncNotifyToggle();
+            return;
+        }
+        let perm = Notification.permission;
+        if (perm === 'default') {
+            try {
+                perm = await Notification.requestPermission();
+            } catch (_) {
+                perm = Notification.permission;
+            }
+        }
+        if (perm === 'granted') {
+            saveNotifyEnabled(true);
+            setNotifyStatus('');
+            notifyToggle.checked = true;
+        } else {
+            saveNotifyEnabled(perm === 'denied');
+            notifyToggle.checked = false;
+            setNotifyStatus(perm === 'denied' ? NOTIFY_MSG_DENIED : '通知が許可されませんでした。オンにするともう一度確認します。');
+        }
+    });
+    syncNotifyToggle();
+    // 別タブやサイト設定で許可が変わったら、戻ってきたときに表示を合わせる
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') syncNotifyToggle();
+    });
+}
+
+function formatMinutes(sec) {
+    return `${Math.max(1, Math.round(sec / oneMinits))}分`;
+}
+
+// 切り替わった先のステータスに合わせて通知を出す。失敗しても音は鳴るので握りつぶす。
+function notifyPhaseChange(nextStatus) {
+    if (!notificationsSupported() || !loadNotifyEnabled()) return;
+    if (Notification.permission !== 'granted') return;
+
+    let title;
+    let body;
+    switch (nextStatus) {
+        case STATUS_ENUM.WORKING.rawValue:
+            title = '作業の時間です';
+            body = `${cycles + 1} 回目のポモドーロ（${formatMinutes(workDuration)}）を始めましょう。`;
+            break;
+        case STATUS_ENUM.BREAKING.rawValue:
+            title = '休憩の時間です';
+            body = `お疲れさまでした。${formatMinutes(breakDuration)}休憩しましょう。`;
+            break;
+        case STATUS_ENUM.LONGBREAKING.rawValue:
+            title = '長い休憩の時間です';
+            body = `${cycles} 回分お疲れさまでした。${formatMinutes(longBreakDuration)}休憩しましょう。`;
+            break;
+        default:
+            return;
+    }
+
+    try {
+        const n = new Notification(title, {
+            body,
+            icon: 'img/favicon.png',
+            tag: 'pomodoro-phase',
+            renotify: true,
+            // タイマー音が鳴るので、OS の通知音は重ねない
+            silent: true,
+        });
+        n.addEventListener('click', () => {
+            window.focus();
+            n.close();
+        });
+    } catch (_) {
+        // Android Chrome などは new Notification() を許さない (Service Worker 必須)。
+        // その場合は従来どおり音だけで知らせる。
+    }
+}
