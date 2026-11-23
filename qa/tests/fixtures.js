@@ -22,6 +22,7 @@ const NOISE_HOSTS = [
  * @param {import('@playwright/test').Page} page
  * @param {object} opts
  * @param {boolean} opts.dismissExtModal 拡張モーダルを出さない（既定 true）
+ * @param {boolean} opts.dismissWelcome 初回の使い方案内を出さない（既定 true）
  * @param {boolean} opts.openSettings サイドバーの「設定」を開いた状態で開く（既定 true）。
  *   本番の既定は「設定=畳む」だが、多くの spec は設定内の入力を直接操作するため、
  *   開閉状態を localStorage に seed して開いた状態から始める。
@@ -29,7 +30,7 @@ const NOISE_HOSTS = [
  * @param {Record<string,string>} opts.localStorage 事前に流し込む localStorage
  */
 export async function gotoApp(page, opts = {}) {
-  const { dismissExtModal = true, openSettings = true, localStorage: ls = {} } = opts;
+  const { dismissExtModal = true, dismissWelcome = true, openSettings = true, localStorage: ls = {} } = opts;
 
   // 外部リクエストはアプリのロジックに影響しない範囲でブロックして高速・安定化
   await page.route('**/*', (route) => {
@@ -40,6 +41,7 @@ export async function gotoApp(page, opts = {}) {
 
   const seed = { ...ls };
   if (dismissExtModal) seed['pomodoro_yt_ext_dismissed'] = 'true';
+  if (dismissWelcome) seed['pomodoro_welcome_seen'] = 'true';
   if (openSettings && !('pomodoro_sidebar_panels' in seed)) {
     seed['pomodoro_sidebar_panels'] = JSON.stringify({ today: true, settings: true });
   }
