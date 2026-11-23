@@ -42,6 +42,7 @@ spec 対応表:
 | 画面レイアウト・サイドバー | `_explore-newfeatures` / `17-gcal-removed` |
 | `<head>` のメタ情報・Voicy の既定 URL | `18-public-defaults`（Voicy 再生も触るなら `02-audio-sources`） |
 | デスクトップ通知（設定スイッチ・フェーズ切替時の通知） | `19-desktop-notifications`（状態機械も触るなら `01-timer-buttons` / `04-timer-drift`） |
+| 拡張アイコンの残り時間表示（`TIMER_STATE` 送信・`extension/timer-icon.js`） | `20-extension-timer-icon`（状態機械も触るなら `01-timer-buttons` / `04-timer-drift`） |
 
 ハマりどころ:
 - 設定は**選んでいる音源の分だけ**表示する。spec で Voicy URL / YouTube 一覧 /
