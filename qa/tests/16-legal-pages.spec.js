@@ -7,9 +7,9 @@ test.describe('フッター: プライバシーポリシー・利用規約', () 
     await page.locator('footer a', { hasText: 'プライバシーポリシー' }).click();
     await expect(page).toHaveURL(/\/privacy\.html$/);
     await expect(page.locator('h1')).toHaveText('プライバシーポリシー');
-    // GA とカレンダー連携 (Limited Use) について書いてあること
+    // アクセス解析について書いてあり、カレンダー連携 (廃止) の記述は残っていないこと
     await expect(page.locator('main')).toContainText('Google アナリティクス');
-    await expect(page.locator('main')).toContainText('Google API Services User Data Policy');
+    await expect(page.locator('main')).not.toContainText('カレンダー');
     // 相互リンクとトップへの戻り
     await page.locator('main a', { hasText: '利用規約' }).click();
     await expect(page).toHaveURL(/\/terms\.html$/);

@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>プライバシーポリシー | ポモドーロタイマー</title>
-    <meta name="description" content="ポモドーロタイマーのプライバシーポリシーです。アクセス解析と Google カレンダー連携で扱う情報について説明します。">
+    <meta name="description" content="ポモドーロタイマーのプライバシーポリシーです。アクセス解析などで扱う情報について説明します。">
     <link rel="icon" type="image/png" sizes="32x32" href="img/favicon.png">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
@@ -35,13 +35,11 @@
         </p>
         <p class="alert alert-light border">
             要点：本サービスには会員登録がなく、運営者が利用者の個人情報を集めるサーバーもありません。
-            設定や Google カレンダーの情報は、利用者のブラウザと Google の間だけでやり取りされます。
+            設定などの情報は、利用者のブラウザ内だけに保存されます。
             運営者が受け取るのは、Google アナリティクスによる匿名のアクセス統計だけです。
         </p>
 
-        <h2>1. 取得する情報と利用目的</h2>
-
-        <h3>1-1. アクセス解析（Google アナリティクス）</h3>
+        <h2>1. アクセス解析（Google アナリティクス）</h2>
         <p>
             本サービスは、利用状況を把握してサービスを改善するために、Google LLC が提供する「Google アナリティクス」を利用しています。
             Google アナリティクスは Cookie を使って、閲覧したページ、滞在時間、おおまかな地域、ブラウザや端末の種類などの情報を収集します。
@@ -55,35 +53,6 @@
             を利用するか、ブラウザの設定で Cookie を無効にしてください。
         </p>
 
-        <h3>1-2. Google カレンダー連携（任意）</h3>
-        <p>
-            「Google と接続」を押して連携を許可した場合に限り、本サービスは Google の認証（Google Identity Services）を通じて、
-            次の権限でアクセストークンを取得します。
-        </p>
-        <ul>
-            <li>メールアドレス（どのアカウントで接続中かを画面に表示し、次回の再接続に使うため）</li>
-            <li>Google カレンダーの予定の閲覧・編集（<code>calendar.events</code>）</li>
-        </ul>
-        <p>このアクセス権は、次の目的にだけ使います。</p>
-        <ul>
-            <li>メインのカレンダーから当日の予定を読み込み、チェックリストとして表示する</li>
-            <li>利用者が予定にチェックを付けたり外したりしたときに、その予定の色をグレーに変える・元の色に戻す</li>
-        </ul>
-        <p>
-            予定の作成・削除や、上記以外の内容の変更は行いません。カレンダーの情報は利用者のブラウザから Google に直接送受信され、
-            運営者のサーバーに送られることはありません。運営者がその内容を見ることもできません。
-            また、取得した情報を第三者に提供・販売したり、広告に使ったり、AI モデルの学習に使ったりすることはありません。
-        </p>
-        <p>
-            本サービスが Google API から受け取った情報の利用と他のアプリへの転送は、
-            <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>
-            （Limited Use の要件を含む）に従います。
-        </p>
-        <p>
-            連携はいつでも解除できます。<a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">Google アカウントのサードパーティ アクセス</a>
-            から本サービスへのアクセス権を削除し、必要に応じて下記 2 の方法でブラウザに残った情報を消してください。
-        </p>
-
         <h2>2. ブラウザへの保存（localStorage / IndexedDB）</h2>
         <p>
             本サービスは、次回も同じ状態で使えるように、次の情報を利用者のブラウザ内（localStorage と IndexedDB）に保存します。
@@ -93,7 +62,6 @@
             <li>音源や音量などの設定、YouTube の再生リストと再生位置、Voicy の URL</li>
             <li>画面のパネルの開閉状態、案内の表示・非表示</li>
             <li>ローカル再生用に選んだファイルへの参照（ファイルの中身はアップロードされません）</li>
-            <li>Google カレンダー連携の設定（OAuth クライアント ID、接続中のメールアドレス、有効期限付きのアクセストークン、予定の元の色と完了状態）</li>
         </ul>
         <p>
             ブラウザの設定から本サイトのデータ（Cookie とサイトデータ）を削除すると、これらはすべて消去されます。
