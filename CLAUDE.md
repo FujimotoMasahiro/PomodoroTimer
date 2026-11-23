@@ -40,6 +40,7 @@ spec 対応表:
 | YouTube のワイプ表示 (PiP)・`pip.html` | `15-youtube-pip`（再生キューも触るなら `03-youtube-queue` / `05-youtube-mode-progress`） |
 | ローカルファイル再生・一覧 | `13-local-media`（音源切替も触るなら `02-audio-sources`） |
 | 画面レイアウト・サイドバー | `_explore-newfeatures` / `17-gcal-removed` |
+| `<head>` のメタ情報・Voicy の既定 URL | `18-public-defaults`（Voicy 再生も触るなら `02-audio-sources`） |
 
 ハマりどころ:
 - 設定は**選んでいる音源の分だけ**表示する。spec で Voicy URL / YouTube 一覧 /

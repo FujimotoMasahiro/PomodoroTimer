@@ -218,7 +218,14 @@ export class VoicyManager {
     }
 
     play(url) {
-        if (!this.container || !url) return;
+        if (!this.container) return;
+        if (!url) {
+            // URL 未設定: iframe を出さず、設定欄への案内だけ表示する
+            this.container.style.overflow = '';
+            this.container.innerHTML = '<p class="text-muted mb-0 py-3 text-center voicy-empty-note">設定の「Voicy URL」に聴きたいチャンネルの URL を入力してください。</p>';
+            this.currentUrl = null;
+            return;
+        }
         if (this.currentUrl === url && this.container.querySelector('iframe')) return;
         this.container.style.overflow = 'hidden';
         this.container.innerHTML = `<iframe src="${url}" allow="autoplay; encrypted-media" frameborder="0" title="Voicy Player" style="border:0; display:block;"></iframe>`;

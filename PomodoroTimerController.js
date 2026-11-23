@@ -54,7 +54,7 @@ const breakSourceSelect = document.getElementById('break-source');
 const voicyUrlInput = document.getElementById('voicy-url');
 const youtubeListContainer = document.getElementById('youtube-url-list');
 
-const DEFAULT_VOICY_URL = 'https://voicy.jp/embed/channel/941';
+// Voicy は聴くチャンネルが人それぞれなので既定値を持たない (未入力なら案内を出す)。
 
 // 音源設定の localStorage 永続化
 const AUDIO_SETTINGS_KEY = 'pomodoro_audio_source_settings';
@@ -1009,8 +1009,7 @@ document.querySelectorAll('input[name="yt-mode"]').forEach((radio) => {
 });
 
 function getVoicyUrl() {
-    const v = (voicyUrlInput && voicyUrlInput.value || '').trim();
-    return v || DEFAULT_VOICY_URL;
+    return (voicyUrlInput && voicyUrlInput.value || '').trim();
 }
 
 // ----------------------------------------------------------------------------
