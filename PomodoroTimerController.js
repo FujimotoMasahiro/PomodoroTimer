@@ -1888,6 +1888,9 @@ function formatMinutes(sec) {
     return `${Math.max(1, Math.round(sec / oneMinits))}分`;
 }
 
+// 直前に出したフェーズ通知 (次の通知を出す前に閉じる)
+let lastPhaseNotification = null;
+
 // 切り替わった先のステータスに合わせて通知を出す。失敗しても音は鳴るので握りつぶす。
 function notifyPhaseChange(nextStatus) {
     if (!notificationsSupported() || !loadNotifyEnabled()) return;
@@ -1913,17 +1916,26 @@ function notifyPhaseChange(nextStatus) {
     }
 
     try {
+        // 前回の通知は閉じてから出し直す。同じ tag で置き換える方式 (tag 固定 + renotify) は
+        // macOS だと通知センター内で静かに差し替わるだけでバナーが出ないため (issue #30)、
+        // tag は毎回変える。
+        if (lastPhaseNotification) {
+            try { lastPhaseNotification.close(); } catch (_) { /* 無視 */ }
+        }
         const n = new Notification(title, {
             body,
             icon: 'img/favicon.png',
-            tag: 'pomodoro-phase',
-            renotify: true,
+            tag: `pomodoro-phase-${Date.now()}`,
             // タイマー音が鳴るので、OS の通知音は重ねない
             silent: true,
         });
+        lastPhaseNotification = n;
         n.addEventListener('click', () => {
             window.focus();
             n.close();
+        });
+        n.addEventListener('close', () => {
+            if (lastPhaseNotification === n) lastPhaseNotification = null;
         });
     } catch (_) {
         // Android Chrome などは new Notification() を許さない (Service Worker 必須)。
