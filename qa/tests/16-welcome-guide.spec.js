@@ -5,13 +5,13 @@ import { test, expect, gotoApp } from './fixtures.js';
 const guide = '#welcome-guide';
 
 test.describe('初めての人向けの使い方案内', () => {
-  test('初回訪問で表示され、タイマーと音源の選び方・上級者向け機能を案内する', async ({ page }) => {
+  test('初回訪問で表示され、タイマーと音源の選び方・上級者向け機能を案内する (カレンダー連携は廃止済みのため出さない)', async ({ page }) => {
     await gotoApp(page, { dismissWelcome: false, openSettings: false });
     await expect(page.locator(guide)).toBeVisible();
     await expect(page.locator(guide)).toContainText('スタート');
     await expect(page.locator(guide)).toContainText('音源を選ぶ');
     await expect(page.locator(guide).locator('summary')).toHaveText('上級者向けの機能');
-    await expect(page.locator(guide)).toContainText('Google カレンダー連携');
+    await expect(page.locator(guide)).not.toContainText('カレンダー');
     await expect(page.locator(guide)).toContainText('Chrome 拡張機能');
   });
 

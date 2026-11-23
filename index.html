@@ -78,7 +78,6 @@
                 <details class="small text-muted mb-3">
                     <summary>上級者向けの機能</summary>
                     <ul class="mt-2 mb-0 ps-3">
-                        <li><strong>Google カレンダー連携</strong>：「今日の予定」に当日の予定をチェックリストで表示します。自分で発行した Google の OAuth クライアント ID が必要です。</li>
                         <li><strong>Chrome 拡張機能</strong>：開いている YouTube タブを再生リストへ一括で追加できます。
                             <a href="https://github.com/FujimotoMasahiro/PomodoroTimer/tree/main/extension"
                                 target="_blank" rel="noopener">インストール手順</a></li>
@@ -168,57 +167,10 @@
             </div>
 
             <!-- Sidebar Section
-                 「今日の予定」と「設定」をトグル式アコーディオンにする。
-                 予定は既定で開き、設定は畳んでおく = ファーストビューで予定が見える。
-                 data-bs-parent は付けない: 片方を開いてももう片方が閉じない (独立トグル)。
+                 「設定」をトグル式アコーディオンにする (既定は畳む)。
                  開閉状態は localStorage に保存され、次回もその状態で開く。 -->
             <div class="settings-col">
                 <div class="accordion" id="sidebar-accordion">
-
-                    <!-- 今日の予定 (Calendar API・チェックで予定をグレーアウト) -->
-                    <div class="accordion-item">
-                        <h2 class="accordion-header">
-                            <button id="panel-today-toggle" class="accordion-button" type="button"
-                                data-bs-toggle="collapse" data-bs-target="#panel-today"
-                                aria-expanded="true" aria-controls="panel-today">
-                                <span class="me-2">今日の予定</span>
-                                <span id="gcal-progress-label" class="badge bg-secondary"
-                                    style="display:none;">0 / 0</span>
-                            </button>
-                        </h2>
-                        <div id="panel-today" class="accordion-collapse collapse show">
-                            <div class="accordion-body">
-                                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-                                    <button type="button" id="gcal-connect-btn" class="btn btn-sm btn-primary"
-                                        disabled>Google と接続</button>
-                                    <button type="button" id="gcal-refresh-btn" class="btn btn-sm btn-outline-secondary"
-                                        style="display:none;">更新</button>
-                                    <a href="https://calendar.google.com/calendar/u/0/r" target="_blank" rel="noopener"
-                                        class="btn btn-sm btn-outline-primary" id="gcal-open-full">通常のカレンダーを開く ↗</a>
-                                </div>
-                                <div class="progress mb-3" id="gcal-progress" style="height: 6px; display:none;">
-                                    <div id="gcal-progress-bar" class="progress-bar bg-success" role="progressbar"
-                                        style="width: 0%;" aria-label="予定の消化"></div>
-                                </div>
-                                <!-- 連携がまだのときだけ出す設定。接続できたら隠れる -->
-                                <div id="gcal-setup" class="mb-3">
-                                    <label for="gcal-client-id" class="form-label small mb-1">OAuth クライアント ID</label>
-                                    <input type="text" id="gcal-client-id" class="form-control form-control-sm"
-                                        autocomplete="off" placeholder="xxxxxxxx.apps.googleusercontent.com">
-                                    <div class="form-text">
-                                        Google Cloud で発行した OAuth クライアント ID を貼り付けて「Google と接続」を押すと、
-                                        今日の予定がチェックリストで表示されます（読み取り＋色の書き戻しのみ・費用ゼロ）。
-                                        クライアント ID は公開情報のため保存しても安全です。
-                                    </div>
-                                </div>
-                                <ul id="gcal-event-list" class="list-group list-group-flush"></ul>
-                                <p id="gcal-status" class="text-muted small mb-0 py-3 text-center">
-                                    上の欄に OAuth クライアント ID を入れて「Google と接続」を押すと、今日の予定が
-                                    チェックリストで表示されます。チェックするとカレンダー上の予定がグレーアウト（完了）になります。
-                                </p>
-                            </div>
-                        </div>
-                    </div>
 
                     <!-- 設定 -->
                     <div class="accordion-item">
@@ -331,8 +283,6 @@
 
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- Google Identity Services (Googleカレンダー連携の OAuth トークン取得用) -->
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <!-- JavaScript Logic -->
     <script type="module" src="PomodoroTimerController.js"></script>
     <!-- <script type="module" src="MusicManager.js"></script> -->
