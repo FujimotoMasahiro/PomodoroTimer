@@ -1628,6 +1628,8 @@ window.PomodoroTimer.addYouTubeUrls = function (urls) {
 const EXT_DISMISS_KEY = 'pomodoro_yt_ext_dismissed';
 window.addEventListener('load', () => {
     if (window.__POMODORO_YT_EXTENSION__) return;
+    // 初回訪問は使い方案内を優先し、上級者向けの拡張モーダルは重ねて出さない
+    if (welcomeShownOnLoad) return;
     try {
         if (localStorage.getItem(EXT_DISMISS_KEY) === 'true') return;
     } catch (_) { /* localStorage 不可は無視して表示する */ }
@@ -2198,6 +2200,48 @@ function initSidebarPanels() {
     });
 }
 initSidebarPanels();
+
+// ---------------------------------------------------------------------------
+// 初めての人向けの使い方案内。初回訪問時だけ自動で表示し、表示した時点で
+// 「見た」を記録する (閉じずに離れても 2 回目以降は出さない)。
+// 以降はタイトル下の「使い方」ボタンから開ける。
+const WELCOME_SEEN_KEY = 'pomodoro_welcome_seen';
+const welcomeGuide = document.getElementById('welcome-guide');
+
+function setWelcomeVisible(visible) {
+    if (welcomeGuide) welcomeGuide.style.display = visible ? '' : 'none';
+}
+
+function initWelcomeGuide() {
+    if (!welcomeGuide) return false;
+    const close = () => setWelcomeVisible(false);
+    document.getElementById('welcome-close-btn')?.addEventListener('click', close);
+    document.getElementById('welcome-close-x')?.addEventListener('click', close);
+    document.getElementById('welcome-open-btn')?.addEventListener('click', () => {
+        setWelcomeVisible(true);
+        welcomeGuide.scrollIntoView({ block: 'nearest' });
+    });
+    // 「設定を開く」: 設定パネルを開いて作業中の音源の選択欄へ移動する
+    document.getElementById('welcome-open-settings')?.addEventListener('click', () => {
+        const panel = document.getElementById('panel-settings');
+        const toggle = document.getElementById('panel-settings-toggle');
+        applySidebarPanelState(panel, toggle, true);
+        saveSidebarPanel('settings', true);
+        const select = document.getElementById('work-source');
+        if (select) {
+            select.scrollIntoView({ block: 'center' });
+            select.focus();
+        }
+    });
+
+    let seen = false;
+    try { seen = localStorage.getItem(WELCOME_SEEN_KEY) === 'true'; } catch (_) { /* 不可なら初回扱い */ }
+    if (seen) return false;
+    setWelcomeVisible(true);
+    try { localStorage.setItem(WELCOME_SEEN_KEY, 'true'); } catch (_) { /* 無視 */ }
+    return true;
+}
+const welcomeShownOnLoad = initWelcomeGuide();
 
 // テスト用フック: 実 OAuth / 通信なしで描画・チェック永続化を検証できるようにする。
 // (本番動作には不要だが、外部依存をブロックする QA 環境で UI を検証するため)

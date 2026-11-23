@@ -55,7 +55,38 @@
 
 <body>
     <div class="container-fluid app-shell mt-4 px-3 px-lg-4">
-        <h1 class="h2 text-center mb-3">ポモドーロタイマー - 無料オンラインツール</h1>
+        <h1 class="h2 text-center mb-1">ポモドーロタイマー - 無料オンラインツール</h1>
+        <p class="text-center mb-3">
+            <button type="button" id="welcome-open-btn" class="btn btn-link btn-sm p-0">使い方</button>
+        </p>
+
+        <!-- 初めての人向けの使い方案内。初回訪問時だけ JS 側で表示し、
+             2 回目以降は「使い方」ボタンから開いたときだけ出す。 -->
+        <section id="welcome-guide" class="card border-primary mb-3" style="display:none;"
+            aria-labelledby="welcome-guide-title">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                    <h2 id="welcome-guide-title" class="h5 mb-0">はじめての方へ：使い方</h2>
+                    <button type="button" id="welcome-close-x" class="btn-close" aria-label="閉じる"></button>
+                </div>
+                <ol class="mb-2 ps-3">
+                    <li class="mb-1"><strong>「スタート」を押す</strong>だけで、作業時間と休憩時間を自動で交互に繰り返します。切り替わるときにタイマー音が鳴ります。途中で「一時停止」「スキップ」「リセット」もできます。</li>
+                    <li class="mb-1"><strong>音源を選ぶ</strong>：画面の「設定」で、作業中と休憩中に流す音を BGM・YouTube・Voicy・手元の音楽/動画ファイル・音なしから選べます。
+                        <button type="button" id="welcome-open-settings" class="btn btn-link btn-sm p-0 align-baseline">設定を開く</button></li>
+                    <li class="mb-1">BGM の音量は 0 にしないでください（ブラウザの仕様でタイマーが止まることがあります）。</li>
+                </ol>
+                <details class="small text-muted mb-3">
+                    <summary>上級者向けの機能</summary>
+                    <ul class="mt-2 mb-0 ps-3">
+                        <li><strong>Google カレンダー連携</strong>：「今日の予定」に当日の予定をチェックリストで表示します。自分で発行した Google の OAuth クライアント ID が必要です。</li>
+                        <li><strong>Chrome 拡張機能</strong>：開いている YouTube タブを再生リストへ一括で追加できます。
+                            <a href="https://github.com/FujimotoMasahiro/PomodoroTimer/tree/main/extension"
+                                target="_blank" rel="noopener">インストール手順</a></li>
+                    </ul>
+                </details>
+                <button type="button" id="welcome-close-btn" class="btn btn-primary btn-sm">はじめる</button>
+            </div>
+        </section>
 
         <div class="d-flex flex-column flex-lg-row gap-3 align-items-stretch align-items-lg-start">
             <!-- Timer Section -->
