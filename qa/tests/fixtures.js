@@ -10,11 +10,6 @@ const NOISE_HOSTS = [
   'img.youtube.com',
   'i.ytimg.com',
   'voicy.jp',
-  // Google カレンダー連携の OAuth ライブラリ / API（実通信は QA では不可）。
-  // 決定論化のためブロックし、描画は window.PomodoroTimer.__setGcalEvents フックで検証する。
-  'accounts.google.com/gsi/client',
-  'apis.google.com',
-  'www.googleapis.com',
 ];
 
 /**
@@ -43,7 +38,7 @@ export async function gotoApp(page, opts = {}) {
   if (dismissExtModal) seed['pomodoro_yt_ext_dismissed'] = 'true';
   if (dismissWelcome) seed['pomodoro_welcome_seen'] = 'true';
   if (openSettings && !('pomodoro_sidebar_panels' in seed)) {
-    seed['pomodoro_sidebar_panels'] = JSON.stringify({ today: true, settings: true });
+    seed['pomodoro_sidebar_panels'] = JSON.stringify({ settings: true });
   }
   await page.addInitScript((entries) => {
     try {

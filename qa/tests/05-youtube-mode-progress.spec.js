@@ -37,7 +37,7 @@ async function gotoWithFakeYT(page, opts = {}) {
   const seed = {
     ...ls,
     pomodoro_yt_ext_dismissed: 'true',
-    pomodoro_sidebar_panels: JSON.stringify({ today: true, settings: true }),
+    pomodoro_sidebar_panels: JSON.stringify({ settings: true }),
   };
   if (!seed[AUDIO_KEY]) seed[AUDIO_KEY] = JSON.stringify({ workSource: 'youtube' });
   await page.addInitScript((entries) => {
@@ -316,7 +316,7 @@ test.describe('探索: 空キュー→対象復活のリカバリ', () => {
       try {
         localStorage.setItem('pomodoro_yt_ext_dismissed','true');
         // 設定アコーディオンを開いた状態から始める (既定は畳まれている)
-        localStorage.setItem('pomodoro_sidebar_panels', JSON.stringify({ today: true, settings: true }));
+        localStorage.setItem('pomodoro_sidebar_panels', JSON.stringify({ settings: true }));
         // YouTube 一覧は YouTube を選んでいるときだけ出る
         localStorage.setItem('pomodoro_audio_source_settings', JSON.stringify({ workSource: 'youtube' }));
       } catch(_){}
