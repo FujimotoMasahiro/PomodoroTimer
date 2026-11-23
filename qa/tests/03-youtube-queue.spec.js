@@ -198,3 +198,18 @@ test.describe('拡張インストール案内モーダル', () => {
     await expect(page.locator('#extInstallModal')).toBeVisible({ timeout: 5000 });
   });
 });
+
+test.describe('拡張機能インストール案内の導線 (issue #24)', () => {
+  const README_URL = 'https://github.com/FujimotoMasahiro/PomodoroTimer/blob/main/extension/README.md';
+
+  test('本文とボタンの両方がインストール手順 (README) へ新しいタブでリンクしている', async ({ page }) => {
+    await gotoApp(page);
+    for (const sel of ['#extInstallGuideLink', '#extInstallGuideBtn']) {
+      const a = page.locator(`#extInstallModal ${sel}`);
+      await expect(a).toHaveAttribute('href', README_URL);
+      await expect(a).toHaveAttribute('target', '_blank');
+    }
+    // 一般ユーザーに分からないリポジトリ内パスの表記は出さない
+    await expect(page.locator('#extInstallModal .modal-body')).not.toContainText('extension/README.md');
+  });
+});

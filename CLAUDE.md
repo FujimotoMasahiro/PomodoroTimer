@@ -20,7 +20,7 @@
 回帰テストは回さず、**今回いじった箇所に影響する spec だけ**をファイル指定で実行する。
 
 ```bash
-cd qa && npx playwright test tests/11-gcal-silent-auth.spec.js   # 例: 認証まわりを直したとき
+cd qa && npx playwright test tests/13-local-media.spec.js   # 例: ローカル再生を直したとき
 ```
 
 対象 spec の選び方:
@@ -37,12 +37,10 @@ spec 対応表:
 | タイマーの状態機械・ボタン | `01-timer-buttons` / `04-timer-drift` |
 | 音源切替・BGM | `02-audio-sources` / `10-bgm-playback-rate-lock` |
 | YouTube 再生リスト・モード | `03-youtube-queue` / `05-youtube-mode-progress` |
-| カレンダーの描画・チェック | `06-gcal-checklist` / `09-gcal-fixes` / `12-gcal-birthday-event` |
-| カレンダーの認証・トークン | `07-gcal-auth-persist` / `11-gcal-silent-auth` / `08-gcal-nomock-smoke` |
 | YouTube のワイプ表示 (PiP)・`pip.html` | `15-youtube-pip`（再生キューも触るなら `03-youtube-queue` / `05-youtube-mode-progress`） |
 | ローカルファイル再生・一覧 | `13-local-media`（音源切替も触るなら `02-audio-sources`） |
-| 画面レイアウト・サイドバー | `_explore-newfeatures` |
-| `<head>` のメタ情報・Voicy の既定 URL | `16-public-defaults`（Voicy 再生も触るなら `02-audio-sources`） |
+| 画面レイアウト・サイドバー | `_explore-newfeatures` / `17-gcal-removed` |
+| `<head>` のメタ情報・Voicy の既定 URL | `18-public-defaults`（Voicy 再生も触るなら `02-audio-sources`） |
 
 ハマりどころ:
 - 設定は**選んでいる音源の分だけ**表示する。spec で Voicy URL / YouTube 一覧 /
@@ -72,4 +70,5 @@ spec 対応表:
 
 ## テスト実行メモ
 - 静的サーバはポート 5500（`qa/playwright.config.js` の webServer が `python3 -m http.server 5500` を起動、既存の Live Server があれば再利用）。
+- Google カレンダー連携は 2026-11-23 に廃止した（issue #21）。起動時に旧 `pomodoro_gcal_*` キーを削除する。
 - 外部依存（gtag / YouTube IFrame API・サムネ / Voicy）は `qa/tests/fixtures.js` でブロックして決定論化。実 YouTube/Voicy・Wake Lock は `cd qa && npm run test:headed` で手動確認。

@@ -13,6 +13,8 @@
     <meta property="og:title" content="ポモドーロタイマー | 無料で使える集中力アップツール">
     <meta property="og:description" content="登録不要・無料で使えるポモドーロタイマー。作業用BGM・YouTube・Voicy・手元の音楽ファイルを流しながら集中できます。">
     <meta property="og:locale" content="ja_JP">
+    <meta property="og:url" content="https://pomodorotimer.manabicodelab.com/">
+    <link rel="canonical" href="https://pomodorotimer.manabicodelab.com/">
     <meta name="twitter:card" content="summary">
     <link rel="icon" type="image/png" sizes="32x32" href="img/favicon.png">
     <!-- Bootstrap CSS -->
@@ -63,7 +65,37 @@
 
 <body>
     <div class="container-fluid app-shell mt-4 px-3 px-lg-4">
-        <h1 class="h2 text-center mb-3">ポモドーロタイマー - 無料オンラインツール</h1>
+        <h1 class="h2 text-center mb-1">ポモドーロタイマー - 無料オンラインツール</h1>
+        <p class="text-center mb-3">
+            <button type="button" id="welcome-open-btn" class="btn btn-link btn-sm p-0">使い方</button>
+        </p>
+
+        <!-- 初めての人向けの使い方案内。初回訪問時だけ JS 側で表示し、
+             2 回目以降は「使い方」ボタンから開いたときだけ出す。 -->
+        <section id="welcome-guide" class="card border-primary mb-3" style="display:none;"
+            aria-labelledby="welcome-guide-title">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                    <h2 id="welcome-guide-title" class="h5 mb-0">はじめての方へ：使い方</h2>
+                    <button type="button" id="welcome-close-x" class="btn-close" aria-label="閉じる"></button>
+                </div>
+                <ol class="mb-2 ps-3">
+                    <li class="mb-1"><strong>「スタート」を押す</strong>だけで、作業時間と休憩時間を自動で交互に繰り返します。切り替わるときにタイマー音が鳴ります。途中で「一時停止」「スキップ」「リセット」もできます。</li>
+                    <li class="mb-1"><strong>音源を選ぶ</strong>：画面の「設定」で、作業中と休憩中に流す音を BGM・YouTube・Voicy・手元の音楽/動画ファイル・音なしから選べます。
+                        <button type="button" id="welcome-open-settings" class="btn btn-link btn-sm p-0 align-baseline">設定を開く</button></li>
+                    <li class="mb-1">BGM の音量は 0 にしないでください（ブラウザの仕様でタイマーが止まることがあります）。</li>
+                </ol>
+                <details class="small text-muted mb-3">
+                    <summary>上級者向けの機能</summary>
+                    <ul class="mt-2 mb-0 ps-3">
+                        <li><strong>Chrome 拡張機能</strong>：開いている YouTube タブを再生リストへ一括で追加できます。
+                            <a href="https://github.com/FujimotoMasahiro/PomodoroTimer/blob/main/extension/README.md"
+                                target="_blank" rel="noopener">インストール手順</a></li>
+                    </ul>
+                </details>
+                <button type="button" id="welcome-close-btn" class="btn btn-primary btn-sm">はじめる</button>
+            </div>
+        </section>
 
         <div class="d-flex flex-column flex-lg-row gap-3 align-items-stretch align-items-lg-start">
             <!-- Timer Section -->
@@ -145,57 +177,10 @@
             </div>
 
             <!-- Sidebar Section
-                 「今日の予定」と「設定」をトグル式アコーディオンにする。
-                 予定は既定で開き、設定は畳んでおく = ファーストビューで予定が見える。
-                 data-bs-parent は付けない: 片方を開いてももう片方が閉じない (独立トグル)。
+                 「設定」をトグル式アコーディオンにする (既定は畳む)。
                  開閉状態は localStorage に保存され、次回もその状態で開く。 -->
             <div class="settings-col">
                 <div class="accordion" id="sidebar-accordion">
-
-                    <!-- 今日の予定 (Calendar API・チェックで予定をグレーアウト) -->
-                    <div class="accordion-item">
-                        <h2 class="accordion-header">
-                            <button id="panel-today-toggle" class="accordion-button" type="button"
-                                data-bs-toggle="collapse" data-bs-target="#panel-today"
-                                aria-expanded="true" aria-controls="panel-today">
-                                <span class="me-2">今日の予定</span>
-                                <span id="gcal-progress-label" class="badge bg-secondary"
-                                    style="display:none;">0 / 0</span>
-                            </button>
-                        </h2>
-                        <div id="panel-today" class="accordion-collapse collapse show">
-                            <div class="accordion-body">
-                                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-                                    <button type="button" id="gcal-connect-btn" class="btn btn-sm btn-primary"
-                                        disabled>Google と接続</button>
-                                    <button type="button" id="gcal-refresh-btn" class="btn btn-sm btn-outline-secondary"
-                                        style="display:none;">更新</button>
-                                    <a href="https://calendar.google.com/calendar/u/0/r" target="_blank" rel="noopener"
-                                        class="btn btn-sm btn-outline-primary" id="gcal-open-full">通常のカレンダーを開く ↗</a>
-                                </div>
-                                <div class="progress mb-3" id="gcal-progress" style="height: 6px; display:none;">
-                                    <div id="gcal-progress-bar" class="progress-bar bg-success" role="progressbar"
-                                        style="width: 0%;" aria-label="予定の消化"></div>
-                                </div>
-                                <!-- 連携がまだのときだけ出す設定。接続できたら隠れる -->
-                                <div id="gcal-setup" class="mb-3">
-                                    <label for="gcal-client-id" class="form-label small mb-1">OAuth クライアント ID</label>
-                                    <input type="text" id="gcal-client-id" class="form-control form-control-sm"
-                                        autocomplete="off" placeholder="xxxxxxxx.apps.googleusercontent.com">
-                                    <div class="form-text">
-                                        Google Cloud で発行した OAuth クライアント ID を貼り付けて「Google と接続」を押すと、
-                                        今日の予定がチェックリストで表示されます（読み取り＋色の書き戻しのみ・費用ゼロ）。
-                                        クライアント ID は公開情報のため保存しても安全です。
-                                    </div>
-                                </div>
-                                <ul id="gcal-event-list" class="list-group list-group-flush"></ul>
-                                <p id="gcal-status" class="text-muted small mb-0 py-3 text-center">
-                                    上の欄に OAuth クライアント ID を入れて「Google と接続」を押すと、今日の予定が
-                                    チェックリストで表示されます。チェックするとカレンダー上の予定がグレーアウト（完了）になります。
-                                </p>
-                            </div>
-                        </div>
-                    </div>
 
                     <!-- 設定 -->
                     <div class="accordion-item">
@@ -279,6 +264,12 @@
                 </div>
             </div>
         </div>
+
+        <footer class="text-center small text-muted py-4 mt-2">
+            <a href="privacy.html" class="link-secondary">プライバシーポリシー</a>
+            <span class="mx-2">|</span>
+            <a href="terms.html" class="link-secondary">利用規約</a>
+        </footer>
     </div>
 
     <!-- 拡張機能インストール案内モーダル (未インストール時のみ JS 側から表示) -->
@@ -291,7 +282,9 @@
                 </div>
                 <div class="modal-body">
                     <p class="mb-2">開いている YouTube タブの URL を、ワンクリックで再生リストに追加できる Chrome 拡張機能があります。</p>
-                    <p class="small text-muted mb-0">インストール方法はリポジトリの <code>extension/README.md</code> を参照してください。</p>
+                    <p class="small text-muted mb-0">インストール方法は
+                        <a href="https://github.com/FujimotoMasahiro/PomodoroTimer/blob/main/extension/README.md" target="_blank" rel="noopener" id="extInstallGuideLink">インストール手順（GitHub）</a>
+                        をご覧ください。新しいタブで開きます。</p>
                 </div>
                 <div class="modal-footer">
                     <div class="form-check me-auto">
@@ -299,8 +292,8 @@
                         <label for="extDismissForever" class="form-check-label small">今後表示しない</label>
                     </div>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">後で</button>
-                    <a href="https://github.com/FujimotoMasahiro/PomodoroTimer/tree/main/extension"
-                        target="_blank" rel="noopener" class="btn btn-primary">インストール手順を見る</a>
+                    <a href="https://github.com/FujimotoMasahiro/PomodoroTimer/blob/main/extension/README.md"
+                        target="_blank" rel="noopener" class="btn btn-primary" id="extInstallGuideBtn">インストール手順を見る</a>
                 </div>
             </div>
         </div>
@@ -308,8 +301,6 @@
 
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- Google Identity Services (Googleカレンダー連携の OAuth トークン取得用) -->
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <!-- JavaScript Logic -->
     <script type="module" src="PomodoroTimerController.js"></script>
     <!-- <script type="module" src="MusicManager.js"></script> -->
