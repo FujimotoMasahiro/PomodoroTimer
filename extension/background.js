@@ -1,3 +1,5 @@
+importScripts('timer-icon.js');
+
 // 拡張アイコンクリック時のメイン処理。
 // アクティブタブが PomodoroTimer なら、開いている全 YouTube watch タブの URL を
 // ページ側フック window.PomodoroTimer.addYouTubeUrls() に渡し、追加成功した

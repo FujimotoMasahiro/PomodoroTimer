@@ -1361,6 +1361,8 @@ function timer() {
     } else {
         time = remaining;
         updateTimerDisplay(remaining);
+        // 毎秒送り直す: 拡張の service worker が休止していても、これで起こして状態を復元させる
+        broadcastTimerState();
     }
 }
 
@@ -1578,9 +1580,38 @@ const observer = new MutationObserver((mutationsList) => {
                 default:
                     break;
             }
+            broadcastTimerState();
         }
     });
 });
+
+// 拡張機能のツールバーアイコンに残り時間を出すため、タイマーの状態を拡張へ渡す。
+// relay.js (ISOLATED world) が受けて service worker に中継し、service worker が
+// アイコン画像を描き直す。拡張機能が未インストールなら何もしない。
+function broadcastTimerState() {
+    if (!window.__POMODORO_YT_EXTENSION__) return;
+    let phase = 'idle';
+    let paused = false;
+    switch (status) {
+        case STATUS_ENUM.WORKING_POSE.rawValue: paused = true; // fallthrough
+        case STATUS_ENUM.WORKING.rawValue: phase = 'work'; break;
+        case STATUS_ENUM.BREAKING_POSE.rawValue: paused = true; // fallthrough
+        case STATUS_ENUM.BREAKING.rawValue: phase = 'break'; break;
+        case STATUS_ENUM.LONGBREAKING_POSE.rawValue: paused = true; // fallthrough
+        case STATUS_ENUM.LONGBREAKING.rawValue: phase = 'longbreak'; break;
+        default: break;
+    }
+    window.postMessage({
+        __pomodoroYt: true,
+        type: 'TIMER_STATE',
+        phase,
+        paused,
+        // 動作中は終了時刻から拡張側が毎秒残りを計算する (ページの tick が間引かれても進む)。
+        endTime: phase !== 'idle' && !paused ? endTime : null,
+        remainingSeconds: time,
+    }, '*');
+}
+window.addEventListener('pomodoro-yt-extension-ready', broadcastTimerState);
 
 // 監視を開始（子ノードの変更を監視）
 observer.observe(statusElement,
@@ -1765,6 +1796,8 @@ window.PomodoroTimer.__localState = function () {
 window.PomodoroTimer.__rotateLocal = function (id) { rotateLocalItemToEnd(id); };
 
 main();
+// 前回の表示が拡張アイコンに残っていれば消す (リロード直後は待機中)
+broadcastTimerState();
 updateActiveSourceDisplay();
 // ---------------------------------------------------------------------------
 // デスクトップ通知 (issue #26)

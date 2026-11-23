@@ -41,6 +41,23 @@
   `window.__POMODORO_YT_EXTENSION__ = { installed: true, version }` を立てる。
   PomodoroTimer ページはこれを見て、未インストール時にインストール案内モーダルを表示する。
 
+## ツールバーアイコンに残り時間を表示
+
+PomodoroTimer のタイマーが動いている間、ツールバーの拡張アイコンを残り時間の表示に差し替える。
+
+- アイコンの上段に「分」、下段に「秒」を 2 段で描く (例: `24` / `59` → 24:59)。
+  Chrome のバッジ (`setBadgeText`) は 4 文字程度しか入らず `24:59` が切れるため、
+  アイコン画像そのものを `OffscreenCanvas` で描いて `chrome.action.setIcon` で差し替えている。
+- 背景色でフェーズを区別する: 作業中 = 青 / 休憩中・長時間休憩中 = 緑 / 一時停止中 = 黄。
+- マウスを乗せると「作業中 残り 24:59」のように 1 行のツールチップが出る。
+- 待機中に戻したとき・PomodoroTimer タブを閉じた / リロードしたときは元のアイコンに戻る。
+- アイコンをクリックしたときの動作 (YouTube タブの一括追加) は変わらない。
+- 仕組み: ページ (`PomodoroTimerController.js`) が状態変化時と毎秒 `TIMER_STATE` を
+  `postMessage` → `relay.js` → service worker (`timer-icon.js`) へ中継。動作中は終了時刻から
+  service worker 側でも毎秒計算し直すため、ページがバックグラウンドで間引かれても表示は進む。
+  一時停止中の状態は `chrome.storage.session` に残し、service worker の休止後も復元する。
+- ツールバーにアイコンが出ていない場合は、パズルアイコン (拡張機能メニュー) からピン留めする。
+
 ## 視聴済みマーク (再生履歴への記録)
 
 PomodoroTimer で動画を最後まで再生すると、その動画を YouTube の再生履歴に
