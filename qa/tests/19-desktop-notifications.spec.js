@@ -19,10 +19,11 @@ async function installFakeNotification(page, { perm = 'default', answer = 'grant
     window.__perm = perm;
     class FakeNotification {
       constructor(title, opts = {}) {
-        window.__notifs.push({ title, body: opts.body, tag: opts.tag, silent: opts.silent });
+        this.rec = { title, body: opts.body, tag: opts.tag, silent: opts.silent, renotify: opts.renotify, closed: false };
+        window.__notifs.push(this.rec);
       }
       addEventListener() {}
-      close() {}
+      close() { this.rec.closed = true; }
       static get permission() { return window.__perm; }
       static requestPermission() {
         window.__permRequests++;
@@ -62,7 +63,9 @@ test.describe('デスクトップ通知', () => {
     expect(list).toHaveLength(1);
     expect(list[0].title).toBe('休憩の時間です');
     expect(list[0].body).toContain('5分');
-    expect(list[0].tag).toBe('pomodoro-phase');
+    // tag 固定の置き換えは macOS でバナーが出ないため、毎回別の tag で出す (issue #30)
+    expect(list[0].tag).toMatch(/^pomodoro-phase-/);
+    expect(list[0].renotify).toBeUndefined();
     expect(list[0].silent).toBe(true);
 
     await page.clock.fastForward('05:01');
@@ -71,6 +74,10 @@ test.describe('デスクトップ通知', () => {
     expect(list).toHaveLength(2);
     expect(list[1].title).toBe('作業の時間です');
     expect(list[1].body).toContain('2 回目');
+    expect(list[1].tag).not.toBe(list[0].tag);
+    // 前回の通知は閉じてから出す (通知センターに溜めない)
+    expect(list[0].closed).toBe(true);
+    expect(list[1].closed).toBe(false);
   });
 
   test('スイッチがオフなら、許可済みでも通知しない', async ({ page }) => {
