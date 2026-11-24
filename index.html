@@ -95,8 +95,6 @@
         .bg-success { background-color: var(--pt-break) !important; }
         .bg-secondary { background-color: var(--pt-muted) !important; }
         .border-primary { border-color: var(--pt-work) !important; }
-        /* 使い方の案内は注意喚起ではないので、朱の枠ではなく通常の罫線にする */
-        #welcome-guide { border-color: var(--pt-line) !important; }
 
         /* フォーム部品のフォーカス・チェック色 */
         .form-control:focus, .form-select:focus, .form-check-input:focus {
@@ -127,25 +125,127 @@
         .yt-url-row.dragging { opacity: 0.4; }
         .yt-url-row .drag-handle { font-weight: bold; }
 
-        /* 横幅を有効活用しつつ、超ワイドでは広がりすぎないよう上限だけ設ける */
-        .app-shell { max-width: 1800px; }
-        /* flex 子要素が内容で押し広げられて溢れないように縮小を許可 */
-        .main-col { min-width: 0; }
-        /* 設定サイドバーは従来幅 (約 col-md-4 相当) を維持。動画側に余白を回す */
-        @media (min-width: 992px) {
-            .settings-col { flex: 0 0 380px; width: 380px; }
+        /* ===== 画面構成 (DESIGN.md「余白・形」) =====
+           スマホ: タイマー → いま流れている音 → 設定 の 1 カラム。
+           PC (992px〜): 左にタイマー (sticky で常に見える) / 右に音。設定は開いたときだけ音の下に出る。
+           広い PC (1400px〜): 設定は右端の 3 列目に出る。 */
+        .app-shell {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 0 16px 8px;
         }
-        /* タイマーは sticky でヘッダーのように上部へ貼り付け、動画までスクロール
-           しても常に見えるようにする。動画 iframe より前面に出すため z-index を上げる */
-        .timer-card {
-            position: sticky;
-            top: 0;
-            z-index: 1020;
-            box-shadow: 0 .25rem .75rem rgba(27, 34, 48, .06);
+        @media (min-width: 992px) { .app-shell { padding: 0 28px 8px; } }
+
+        .app-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0; }
+        .app-logo { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 17px; font-weight: 700; letter-spacing: .02em; white-space: nowrap; }
+        .app-logo svg { flex: none; }
+        .app-actions { display: flex; gap: 4px; }
+        .btn-quiet {
+            --bs-btn-color: var(--pt-muted); --bs-btn-hover-color: var(--pt-ink); --bs-btn-hover-bg: var(--pt-chip);
+            --bs-btn-active-color: var(--pt-ink); --bs-btn-active-bg: var(--pt-chip);
+            --bs-btn-border-color: transparent; --bs-btn-hover-border-color: transparent; --bs-btn-active-border-color: transparent;
+            --bs-btn-font-size: 14px; --bs-btn-padding-x: 10px; --bs-btn-padding-y: 6px;
+            display: inline-flex; align-items: center; gap: 6px;
+        }
+        #panel-settings-toggle:not(.collapsed) { color: var(--pt-ink); background: var(--pt-chip); }
+        @media (max-width: 420px) {
+            .app-actions .btn-quiet span { display: none; }
+            .app-actions .btn-quiet { padding: 8px; }
+        }
+
+        .app-layout { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+        .main-col, .timer-col, .settings-col { min-width: 0; }
+        @media (min-width: 992px) {
+            .app-layout { grid-template-columns: 380px minmax(0, 1fr); gap: 24px; }
+            .timer-col { grid-row: 1 / span 2; position: sticky; top: 16px; }
+            .settings-col { grid-column: 2; }
+        }
+        @media (min-width: 1400px) {
+            .app-layout:has(#panel-settings.show, #panel-settings.collapsing) { grid-template-columns: 380px minmax(0, 1fr) 360px; }
+            .settings-col { grid-column: 3; grid-row: 1; }
+        }
+        /* 設定を閉じているときは列ごと消す (空の枠を出さない) */
+        .app-layout:not(:has(#panel-settings.show, #panel-settings.collapsing)) .settings-col { display: none; }
+
+        /* ===== タイマー ===== */
+        body { background: var(--pt-tint, var(--pt-bg)); transition: background-color .4s; }
+        body { --ph: var(--pt-ink); --ph-btn: var(--pt-work); --ph-btn-hover: var(--pt-work-hover); }
+        body[data-phase="work"] { --ph: var(--pt-work); --pt-tint: #fbf4f1; }
+        body[data-phase="break"] { --ph: var(--pt-break); --ph-btn: var(--pt-break); --ph-btn-hover: #156644; --pt-tint: #f1f8f4; }
+        body[data-phase="pause"] { --ph: var(--pt-pause); --ph-btn: var(--pt-pause); --ph-btn-hover: #82550f; }
+
+        .timer-body { display: grid; justify-items: center; gap: 16px; padding: 28px 20px 22px; }
+        .timer-ring { position: relative; width: min(300px, 78vw); aspect-ratio: 1; }
+        .timer-ring svg { width: 100%; height: 100%; display: block; transform: rotate(-90deg); }
+        .ring-track { stroke: var(--pt-chip); }
+        .ring-progress { stroke: var(--ph); stroke-linecap: round; transition: stroke-dashoffset 1s linear, stroke .4s; }
+        /* 待機中のリングは主張させない (動き出してから状態色になる) */
+        body[data-phase="idle"] .ring-progress { stroke: #c9ced8; }
+        .ring-in { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 6px; text-align: center; }
+        .ring-in p { margin: 0; }
+        .phase-chip {
+            display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500;
+            color: var(--ph); background: var(--pt-chip); background: color-mix(in srgb, var(--ph) 10%, transparent);
+            padding: 2px 12px; border-radius: 999px; line-height: 1.6;
+        }
+        .phase-chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+        body[data-phase="work"] .phase-chip::before { animation: pt-pulse 2s infinite; }
+        @keyframes pt-pulse { 50% { opacity: .3; } }
+        .timer-digits { font-size: clamp(56px, 18vw, 76px); line-height: 1; }
+        .next-phase { font-size: 13px; color: var(--pt-muted); }
+        .cycle-row { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--pt-muted); }
+        .cycle-dots { display: flex; gap: 6px; }
+        .cycle-dots i { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--pt-line); display: block; }
+        .cycle-dots i.on { background: var(--pt-work); border-color: var(--pt-work); }
+        .timer-btns { display: flex; align-items: center; justify-content: center; gap: 12px; }
+        .btn-main {
+            --bs-btn-color: #fff; --bs-btn-bg: var(--ph-btn); --bs-btn-border-color: var(--ph-btn);
+            --bs-btn-hover-color: #fff; --bs-btn-hover-bg: var(--ph-btn-hover); --bs-btn-hover-border-color: var(--ph-btn-hover);
+            --bs-btn-active-color: #fff; --bs-btn-active-bg: var(--ph-btn-hover); --bs-btn-active-border-color: var(--ph-btn-hover);
+            --bs-btn-focus-shadow-rgb: 200, 64, 31;
+            --bs-btn-font-size: 17px; --bs-btn-font-weight: 700; --bs-btn-padding-y: 12px; --bs-btn-padding-x: 36px;
+            --bs-btn-border-radius: 999px;
+            min-width: 168px; letter-spacing: .08em;
+        }
+        .btn-round {
+            --bs-btn-color: var(--pt-muted); --bs-btn-bg: var(--pt-surface); --bs-btn-border-color: var(--pt-line);
+            --bs-btn-hover-color: var(--pt-ink); --bs-btn-hover-bg: var(--pt-chip); --bs-btn-hover-border-color: var(--pt-line);
+            --bs-btn-active-color: var(--pt-ink); --bs-btn-active-bg: var(--pt-chip); --bs-btn-active-border-color: var(--pt-line);
+            --bs-btn-border-radius: 50%; --bs-btn-padding-x: 0; --bs-btn-padding-y: 0;
+            width: 46px; height: 46px;
+        }
+        .btn-round:not([style*="none"]) { display: inline-grid !important; place-items: center; }
+        .kbd-hint { margin: 0; font-size: 12px; color: var(--pt-muted); }
+        .kbd-hint kbd { font-family: var(--pt-font-num); font-size: 11px; color: var(--pt-ink); background: var(--pt-surface); border: 1px solid var(--pt-line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; }
+        @media (hover: none) { .kbd-hint { display: none; } }
+        @media (max-width: 400px) { .btn-main { min-width: 0; --bs-btn-padding-x: 28px; } }
+
+        /* ===== いま流れている音 ===== */
+        .now-playing .card-body { padding: 18px 20px; }
+        .np-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 12px; }
+        .np-label { margin: 0; font-size: 12px; color: var(--pt-muted); letter-spacing: .06em; }
+        .np-title { margin: 0; font-size: 18px; font-weight: 500; }
+        #active-source-label { color: var(--pt-ink); }
+        #active-phase-badge { font-weight: 500; border-radius: 999px; padding: .4em .8em; }
+        .volume-warning { margin: 10px 0 0; font-size: 13px; color: var(--pt-pause); }
+
+        /* ===== 設定 ===== */
+        .settings-col .accordion-body { padding: 18px 20px; }
+        .settings-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .settings-title { margin: 0; font-size: 17px; font-weight: 700; }
+        .settings-heading { font-size: 13px; font-weight: 500; color: var(--pt-muted); letter-spacing: .06em; margin: 22px 0 10px; padding-top: 14px; border-top: 1px solid var(--pt-line); }
+        .settings-top + .settings-heading { border-top: 0; padding-top: 0; margin-top: 12px; }
+
+        .app-footer { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px 20px; padding: 32px 0 16px; font-size: 13px; }
+        .app-footer a { color: var(--pt-muted); }
+
+        @media (prefers-reduced-motion: reduce) {
+            .ring-progress, body { transition: none; }
+            body[data-phase="work"] .phase-chip::before { animation: none; }
         }
 
         /* YouTube 動画は列幅いっぱい・16:9。高さは画面に収まる範囲で最大化。
-           sticky タイマーの高さぶんを引いて、動画全体が画面に収まりやすくする */
+           (PC ではタイマーが左列にあるので、動画の上には重ならない) */
         #youtubeContainer,
         #localVideoContainer { width: 100%; aspect-ratio: 16 / 9; max-height: 70vh; }
         #localVideoContainer video { width: 100%; height: 100%; display: block; background: #000; }
@@ -167,16 +267,21 @@
     </script>
 </head>
 
-<body>
-    <div class="container-fluid app-shell mt-4 px-3 px-lg-4">
-        <h1 class="h2 text-center mb-1">ポモドーロタイマー - 無料オンラインツール</h1>
-        <p class="text-center mb-3">
-            <button type="button" id="welcome-open-btn" class="btn btn-link btn-sm p-0">使い方</button>
-        </p>
+<body data-phase="idle">
+    <div class="app-shell">
+        <header class="app-top">
+            <h1 class="app-logo"><svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="9" fill="#c8401f"/><path d="M12 4c0-1.5 1-2.5 2.5-2.5M9 5.5c1.5-1 4.5-1 6 0" stroke="#1a7d52" stroke-width="2" fill="none" stroke-linecap="round"/></svg><span>ポモドーロタイマー</span><span class="visually-hidden"> - 無料オンラインツール</span></h1>
+            <nav class="app-actions" aria-label="メニュー">
+                <button type="button" id="welcome-open-btn" class="btn btn-quiet"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg><span>使い方</span></button>
+                <button type="button" id="panel-settings-toggle" class="btn btn-quiet collapsed"
+                    data-bs-toggle="collapse" data-bs-target="#panel-settings"
+                    aria-expanded="false" aria-controls="panel-settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span>設定</span></button>
+            </nav>
+        </header>
 
         <!-- 初めての人向けの使い方案内。初回訪問時だけ JS 側で表示し、
              2 回目以降は「使い方」ボタンから開いたときだけ出す。 -->
-        <section id="welcome-guide" class="card border-primary mb-3" style="display:none;"
+        <section id="welcome-guide" class="card mb-3" style="display:none;"
             aria-labelledby="welcome-guide-title">
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
@@ -201,40 +306,48 @@
             </div>
         </section>
 
-        <div class="d-flex flex-column flex-lg-row gap-3 align-items-stretch align-items-lg-start">
-            <!-- Timer Section -->
-            <div class="main-col flex-grow-1">
-                <div class="card mb-3 timer-card">
-                    <div class="card-body">
-                        <!-- 数字の横にステータス・回数・操作ボタンを並べて縦幅を節約 -->
-                        <div class="d-flex flex-wrap align-items-center justify-content-center justify-content-md-evenly gap-4">
-                            <p id="timer" class="display-1 fw-bold lh-1 mb-0">25:00</p>
-                            <div class="text-center">
-                                <p id="status" class="h4 mb-1">待機中</p>
-                                <p class="text-muted mb-3">ポモドーロ数：<span id="cycles">0</span></p>
-                                <div class="d-flex flex-wrap gap-2 justify-content-center">
-                                    <button id="start-btn" class="btn btn-primary btn-lg"
-                                        style="display:inline-block;">スタート</button>
-                                    <button id="pause-btn" class="btn btn-secondary btn-lg"
-                                        style="display:none;">一時停止</button>
-                                    <button id="restart-btn" class="btn btn-secondary btn-lg"
-                                        style="display:none;">再開</button>
-                                    <button id="skip-btn" class="btn btn-secondary btn-lg"
-                                        style="display:none;">スキップ</button>
-                                    <button id="reset-btn" class="btn btn-danger btn-lg"
-                                        style="display:none;">リセット</button>
-                                </div>
+        <!-- 画面の役割は 3 つ: タイマー (左・主役) / いま流れている音 (中央) / 設定 (開いたときだけ右に出る) -->
+        <div class="app-layout">
+            <div class="timer-col">
+                <div class="card timer-card">
+                    <div class="card-body timer-body">
+                        <!-- 残り時間をリングで見せる。色は作業 / 休憩 / 一時停止で変わる (body[data-phase]) -->
+                        <div class="timer-ring">
+                            <svg viewBox="0 0 100 100" aria-hidden="true">
+                                <circle class="ring-track" cx="50" cy="50" r="46" fill="none" stroke-width="2.5"/>
+                                <circle id="timer-ring-progress" class="ring-progress" cx="50" cy="50" r="46" fill="none" stroke-width="2.5"/>
+                            </svg>
+                            <div class="ring-in">
+                                <p id="status" class="phase-chip" aria-live="polite">待機中</p>
+                                <p id="timer" class="timer-digits">25:00</p>
+                                <p id="next-phase" class="next-phase">25分の作業から始めます</p>
                             </div>
                         </div>
+                        <div class="cycle-row">
+                            <span class="cycle-dots" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+                            <span>ポモドーロ数：<span id="cycles">0</span></span>
+                        </div>
+                        <div class="timer-btns">
+                            <button id="reset-btn" class="btn btn-round" style="display:none;" title="リセット"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.6"/><path d="M4 4v4h4"/></svg><span class="visually-hidden">リセット</span></button>
+                            <button id="start-btn" class="btn btn-main" style="display:inline-block;">スタート</button>
+                            <button id="pause-btn" class="btn btn-main" style="display:none;">一時停止</button>
+                            <button id="restart-btn" class="btn btn-main" style="display:none;">再開</button>
+                            <button id="skip-btn" class="btn btn-round" style="display:none;" title="スキップ"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 5l10 7-10 7zM17 5h2v14h-2z"/></svg><span class="visually-hidden">スキップ</span></button>
+                        </div>
+                        <p class="kbd-hint"><kbd>Space</kbd> キーで開始・一時停止</p>
                     </div>
                 </div>
-                <p class="text-danger mt-2 mb-2 small">※BGMの音量を0にするとブラウザの仕様でタイマーが止まってしまいます。音量を完全に0にせずに使用してください。</p>
+            </div>
 
-                <!-- 現在の音源 (アクティブなものだけ表示) -->
-                <div class="card mb-3">
+            <div class="main-col">
+                <!-- いま流れている音 (アクティブな音源だけ表示) -->
+                <div class="card now-playing">
                     <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <h5 class="card-title mb-0">現在の音源: <span id="active-source-label" class="text-primary">作業中BGM</span></h5>
+                        <div class="np-head">
+                            <div>
+                                <p class="np-label">いま流れている音</p>
+                                <h2 class="np-title"><span id="active-source-label">作業中BGM</span></h2>
+                            </div>
                             <span id="active-phase-badge" class="badge bg-secondary">停止中</span>
                         </div>
 
@@ -268,34 +381,22 @@
                         <div id="noneWrapper" class="active-source-content" style="display:none;">
                             <p class="text-muted mb-0 py-3 text-center">音源は使用されていません</p>
                         </div>
-                    </div>
-                </div>
-
-                <!-- タイマー音 (常時表示) -->
-                <div class="card mb-3">
-                    <div class="card-body py-2">
-                        <h6 class="card-subtitle text-muted mb-2">タイマー音 (フェーズ切替時)</h6>
-                        <audio id="audioPlayer2" src="music/目覚まし時計のアラーム.mp3" controls class="w-100"></audio>
+                        <!-- 音量を下げすぎたときだけ出す (常時の赤字はやめた) -->
+                        <p id="volume-warning" class="volume-warning" role="status" hidden>音量を0にするとブラウザの仕様でタイマーが止まってしまいます。音量は少しだけ残してください。</p>
                     </div>
                 </div>
             </div>
 
-            <!-- Sidebar Section
-                 「設定」をトグル式アコーディオンにする (既定は畳む)。
-                 開閉状態は localStorage に保存され、次回もその状態で開く。 -->
+            <!-- 設定。ヘッダーの「設定」で開閉する (既定は畳む)。開閉状態は localStorage に保存され、次回もその状態で開く。 -->
             <div class="settings-col">
                 <div class="accordion" id="sidebar-accordion">
-
-                    <!-- 設定 -->
                     <div class="accordion-item">
-                        <h2 class="accordion-header">
-                            <button id="panel-settings-toggle" class="accordion-button collapsed" type="button"
-                                data-bs-toggle="collapse" data-bs-target="#panel-settings"
-                                aria-expanded="false" aria-controls="panel-settings">設定</button>
-                        </h2>
                         <div id="panel-settings" class="accordion-collapse collapse">
                             <div class="accordion-body">
-                                <h6 class="mt-2">音源設定</h6>
+                                <div class="settings-top">
+                                    <h2 class="settings-title">設定</h2>
+                                    <button type="button" class="btn-close" data-bs-toggle="collapse" data-bs-target="#panel-settings" aria-label="設定を閉じる"></button>
+                                </div>
                                 <div class="mb-3">
                                     <label for="work-source" class="form-label">作業中の音源</label>
                                     <select id="work-source" class="form-select">
@@ -361,7 +462,14 @@
                                     <div class="form-text" id="local-file-note"></div>
                                 </div>
 
-                                <h6 class="mt-4">通知</h6>
+
+                                <h3 class="settings-heading">切り替わりの合図</h3>
+                                <div class="mb-3">
+                                    <audio id="audioPlayer2" src="music/目覚まし時計のアラーム.mp3" controls class="w-100"></audio>
+                                    <div class="form-text">作業と休憩が切り替わるときに鳴る音です。ここで試しに鳴らせます。</div>
+                                </div>
+
+                                <h3 class="settings-heading">通知</h3>
                                 <div class="mb-3" id="notify-settings">
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" role="switch" id="notify-toggle">
@@ -373,19 +481,17 @@
                                     </div>
                                     <div class="form-text text-danger" id="notify-status" role="status"></div>
                                 </div>
-
                             </div>
                         </div>
                     </div>
-
                 </div>
             </div>
         </div>
 
-        <footer class="text-center small text-muted py-4 mt-2">
-            <a href="privacy.html" class="link-secondary">プライバシーポリシー</a>
-            <span class="mx-2">|</span>
-            <a href="terms.html" class="link-secondary">利用規約</a>
+        <footer class="app-footer">
+            <a href="privacy.html">プライバシーポリシー</a>
+            <a href="terms.html">利用規約</a>
+            <a href="https://github.com/FujimotoMasahiro/PomodoroTimer/blob/main/extension/README.md" target="_blank" rel="noopener">Chrome 拡張機能</a>
         </footer>
     </div>
 
