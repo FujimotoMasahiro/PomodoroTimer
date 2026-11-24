@@ -1282,6 +1282,7 @@ function updateTimerDisplay(time) {
     const minutes = String(Math.floor(time / oneMinits)).padStart(2, '0');
     const seconds = String(time % oneMinits).padStart(2, '0');
     timerElement.textContent = `${minutes}:${seconds}`;
+    updateRingAndTitle(time);
 }
 
 // 残り秒数 (time) から終了時刻を確定し、毎秒の再計算を開始する。
@@ -1450,12 +1451,14 @@ function timerDisplayUpdate() {
 function countupCycles() {
     cycles++;
     cyclesElement.textContent = cycles;
+    updatePhaseUI();
 }
 
 // ポモドーロ回数の表示切り替え
 function resetCycles() {
     cycles = 0;
     cyclesElement.textContent = cycles;
+    updatePhaseUI();
 }
 
 // イベントリスナー
@@ -1544,6 +1547,7 @@ const observer = new MutationObserver((mutationsList) => {
         if (mutation.type === 'childList') {
             // ここに変更時の処理を記述
             buttonDisplayUpdate();
+            updatePhaseUI();
             updateActiveSourceDisplay();
             clearInterval(intervalId);
             switch (status) {
@@ -1795,7 +1799,133 @@ window.PomodoroTimer.__localState = function () {
 };
 window.PomodoroTimer.__rotateLocal = function (id) { rotateLocalItemToEnd(id); };
 
+
+// ---------------------------------------------------------------------------
+// 案 A の画面表示 (issue #32)
+// 状態ごとの色 (body[data-phase])・残り時間のリング・次のフェーズの案内・
+// 回数ドット・タブ名の残り時間・Space キー操作・音量を下げすぎたときの注意。
+// ここの関数はモジュール読み込みの途中 (この行より前) から呼ばれることがあるので、
+// 要素は const で持たず毎回取り直す (TDZ で落ちないように)。
+function ringProgressEl() { return document.getElementById('timer-ring-progress'); }
+function baseTitle() {
+    return document.querySelector('meta[property="og:title"]')?.content || 'ポモドーロタイマー';
+}
+const RING_LENGTH = 2 * Math.PI * 46; // SVG の円 (r=46) の周長
+{
+    const ring = ringProgressEl();
+    if (ring) {
+        ring.style.strokeDasharray = String(RING_LENGTH);
+        ring.style.strokeDashoffset = '0';
+    }
+}
+
+function phaseOf(st) {
+    switch (st) {
+        case STATUS_ENUM.WORKING.rawValue: return 'work';
+        case STATUS_ENUM.BREAKING.rawValue:
+        case STATUS_ENUM.LONGBREAKING.rawValue: return 'break';
+        case STATUS_ENUM.WORKING_POSE.rawValue:
+        case STATUS_ENUM.BREAKING_POSE.rawValue:
+        case STATUS_ENUM.LONGBREAKING_POSE.rawValue: return 'pause';
+        default: return 'idle';
+    }
+}
+
+// いまのフェーズの長さ (秒)。リングの割合計算に使う。
+function phaseTotalSeconds(st) {
+    switch (st) {
+        case STATUS_ENUM.WORKING.rawValue:
+        case STATUS_ENUM.WORKING_POSE.rawValue: return workDuration;
+        case STATUS_ENUM.BREAKING.rawValue:
+        case STATUS_ENUM.BREAKING_POSE.rawValue: return breakDuration;
+        case STATUS_ENUM.LONGBREAKING.rawValue:
+        case STATUS_ENUM.LONGBREAKING_POSE.rawValue: return longBreakDuration;
+        default: return 0;
+    }
+}
+
+function updateRingAndTitle(remaining) {
+    const total = phaseTotalSeconds(status);
+    const ring = ringProgressEl();
+    if (ring) {
+        const ratio = total > 0 ? Math.min(1, Math.max(0, remaining / total)) : 1;
+        ring.style.strokeDasharray = String(2 * Math.PI * 46);
+        ring.style.strokeDashoffset = String(2 * Math.PI * 46 * (1 - ratio));
+    }
+    if (status === undefined || status === STATUS_ENUM.INITIAL.rawValue) {
+        document.title = baseTitle();
+    } else {
+        const statusText = statusElement ? statusElement.textContent : '';
+        document.title = `${timerElement.textContent} ${statusText} | ポモドーロタイマー`;
+    }
+}
+
+function updatePhaseUI() {
+    const phase = phaseOf(status);
+    document.body.dataset.phase = phase;
+    const min = (sec) => Math.round(sec / oneMinits);
+    const nextPhaseEl = document.getElementById('next-phase');
+    if (nextPhaseEl) {
+        let text;
+        switch (status) {
+            case STATUS_ENUM.WORKING.rawValue:
+                text = `次は ${min(cycles % longBreakFrequency === 0 ? longBreakDuration : breakDuration)}分の休憩`;
+                break;
+            case STATUS_ENUM.BREAKING.rawValue:
+            case STATUS_ENUM.LONGBREAKING.rawValue:
+                text = `次は ${min(workDuration)}分の作業`;
+                break;
+            case STATUS_ENUM.WORKING_POSE.rawValue:
+            case STATUS_ENUM.BREAKING_POSE.rawValue:
+            case STATUS_ENUM.LONGBREAKING_POSE.rawValue:
+                text = '「再開」で続きから進みます';
+                break;
+            default:
+                text = `${min(workDuration)}分の作業から始めます`;
+        }
+        nextPhaseEl.textContent = text;
+    }
+    // 4 回で 1 セット。いまのセットで何回目かを丸で見せる
+    const inSet = cycles === 0 ? 0 : ((cycles - 1) % longBreakFrequency) + 1;
+    document.querySelectorAll('.cycle-dots i').forEach((el, i) => el.classList.toggle('on', i < inSet));
+    if (status === STATUS_ENUM.INITIAL.rawValue) updateTimerDisplay(workDuration);
+    else updateRingAndTitle(time);
+}
+
+// Space キーで開始・一時停止・再開 (入力欄やボタン上では既定の動作を優先する)
+document.addEventListener('keydown', (e) => {
+    if (e.code !== 'Space' && e.key !== ' ') return;
+    if (e.repeat || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    const t = e.target;
+    if (t && t.closest && t.closest('input, textarea, select, button, a, audio, video, iframe, [contenteditable=""], [contenteditable="true"], .modal.show')) return;
+    const target = [startButton, pauseButton, restartButton].find((b) => b && b.style.display !== 'none');
+    if (!target) return;
+    e.preventDefault();
+    target.click();
+});
+
+// 音量 0 の注意は、音量を 5% 未満に下げたときだけ出す (以前は常時赤字で出していた)
+const volumeWarningEl = document.getElementById('volume-warning');
+const volumeWatchedEls = ['audioPlayer', 'audioPlayer3', 'localAudioPlayer', 'localVideoPlayer']
+    .map((id) => document.getElementById(id))
+    .filter(Boolean);
+function updateVolumeWarning() {
+    if (!volumeWarningEl) return;
+    const low = volumeWatchedEls.some((el) => el.muted || el.volume < 0.05);
+    volumeWarningEl.hidden = !low;
+}
+volumeWatchedEls.forEach((el) => el.addEventListener('volumechange', updateVolumeWarning));
+updateVolumeWarning();
+
+// スマホ・狭い PC では設定がページ下に出るので、開いたらそこまでスクロールする
+document.getElementById('panel-settings')?.addEventListener('shown.bs.collapse', (e) => {
+    if (e.target.id !== 'panel-settings') return;
+    if (window.matchMedia('(min-width: 1400px)').matches) return;
+    e.target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
 main();
+updatePhaseUI();
 // 前回の表示が拡張アイコンに残っていれば消す (リロード直後は待機中)
 broadcastTimerState();
 updateActiveSourceDisplay();

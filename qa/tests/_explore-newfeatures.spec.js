@@ -2,7 +2,8 @@
 // 見た目/レイアウト/モバイル耐性の証跡取得 spec（命名に _ を付け既存と区別）。
 //
 // レイアウト仕様:
-//  - 右カラム(.settings-col)に「設定」パネルをアコーディオンで置く。既定は畳む。
+//  - 「設定」パネル(.settings-col)はヘッダーの「設定」ボタンで開閉する。既定は畳む。
+//    畳んでいる間は列ごと消える。開くと PC では音の下 (1400px〜は右端の列)、スマホでは下に出る (issue #32)。
 //  - 開閉状態は localStorage['pomodoro_sidebar_panels'] に保存され、次回もその状態で開く。
 //  - 「今日の予定」(Google カレンダー連携) は 2026-11-23 に廃止（issue #21）。
 //  - ToDo(Tasks) カラムは仕様削除済み。
@@ -30,14 +31,16 @@ test.describe('探索: サイドバーのアコーディオン（設定）', () 
     await page.setViewportSize({ width: 1280, height: 900 });
     await gotoRaw(page);
 
-    const col = page.locator('.settings-col');
-    await col.scrollIntoViewIfNeeded();
-    await col.screenshot({ path: `${SHOT_DIR}/sidebar-desktop.png` });
-
     await expect(page.locator('#panel-settings')).not.toHaveClass(/show/);
     await expect(page.locator('#panel-settings-toggle')).toBeVisible();
+    // 畳んでいる間は空の枠を出さない
+    await expect(page.locator('.settings-col')).toBeHidden();
     await expect(page.locator('#panel-today')).toHaveCount(0);
 
+    await page.locator('#panel-settings-toggle').click();
+    await expect(page.locator('#panel-settings')).toHaveClass(/show/);
+    const col = page.locator('.settings-col');
+    await col.screenshot({ path: `${SHOT_DIR}/sidebar-desktop.png` });
     const colBox = await col.boundingBox();
     const itemBox = await settingsItem(page).boundingBox();
     expect(itemBox.width).toBeGreaterThan(colBox.width * 0.9);

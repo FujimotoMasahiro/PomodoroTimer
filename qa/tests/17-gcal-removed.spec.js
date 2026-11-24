@@ -24,7 +24,7 @@ test.describe('Google カレンダー連携の廃止', () => {
 
   test('Google の OAuth ライブラリを読み込まない', async ({ page }) => {
     const requested = [];
-    page.on('request', (r) => { if (/accounts\.google\.com|googleapis\.com/.test(r.url())) requested.push(r.url()); });
+    page.on('request', (r) => { if (/accounts\.google\.com|apis\.google\.com|www\.googleapis\.com/.test(r.url())) requested.push(r.url()); });
     await gotoApp(page);
     await page.waitForLoadState('load');
     expect(requested).toEqual([]);

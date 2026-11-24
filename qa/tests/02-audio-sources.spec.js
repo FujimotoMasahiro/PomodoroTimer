@@ -71,9 +71,14 @@ test.describe('音源: localStorage 永続化', () => {
 });
 
 test.describe('UX: 注意書き', () => {
-  test('音量0でタイマーが止まる旨の警告文が表示されている', async ({ page }) => {
+  // 常時の赤字はやめ、音量を 5% 未満に下げたときだけ出す (issue #32)
+  test('音量0でタイマーが止まる旨の警告文は、音量を下げたときだけ表示される', async ({ page }) => {
     await gotoApp(page);
+    await expect(page.locator('#volume-warning')).toBeHidden();
+    await page.evaluate(() => { document.getElementById('audioPlayer').volume = 0.02; });
     await expect(page.getByText(/音量を0にすると/)).toBeVisible();
+    await page.evaluate(() => { document.getElementById('audioPlayer').volume = 0.5; });
+    await expect(page.locator('#volume-warning')).toBeHidden();
   });
 });
 
