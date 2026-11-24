@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ポモドーロタイマー | 無料で使える集中力アップツール</title>
     <meta name="description" content="登録不要・無料で使えるポモドーロタイマー。25分の作業と5分の休憩を自動で切り替え、作業用BGM・YouTube・Voicy・手元の音楽ファイルを流しながら集中できます。">
-    <meta name="theme-color" content="#0d6efd">
+    <meta name="theme-color" content="#c8401f">
     <!-- OGP / SNS で共有されたときの表示 -->
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="ポモドーロタイマー">
@@ -19,7 +19,111 @@
     <link rel="icon" type="image/png" sizes="32x32" href="img/favicon.png">
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- 書体 (DESIGN.md): 日本語は Noto Sans JP、残り時間の数字は Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
+        /* ===== デザイントークン (値と役割は DESIGN.md) ===== */
+        :root {
+            --pt-bg: #f6f7f9;
+            --pt-surface: #ffffff;
+            --pt-ink: #1b2230;
+            --pt-muted: #5b6474;
+            --pt-line: #e3e6ec;
+            --pt-chip: #eef0f4;
+            --pt-work: #c8401f;
+            --pt-work-hover: #ad3618;
+            --pt-break: #1a7d52;
+            --pt-pause: #9a6512;
+            --pt-font-jp: "Noto Sans JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, sans-serif;
+            --pt-font-num: "Inter", "Helvetica Neue", Arial, sans-serif;
+            --pt-radius-sm: 8px;
+            --pt-radius: 16px;
+
+            /* Bootstrap の既定値をトークンに差し替える */
+            --bs-body-font-family: var(--pt-font-jp);
+            --bs-body-color: var(--pt-ink);
+            --bs-body-bg: var(--pt-bg);
+            --bs-secondary-color: var(--pt-muted);
+            --bs-border-color: var(--pt-line);
+            --bs-primary: var(--pt-work);
+            --bs-primary-rgb: 200, 64, 31;
+            --bs-success-rgb: 26, 125, 82;
+            --bs-link-color: var(--pt-work);
+            --bs-link-color-rgb: 200, 64, 31;
+            --bs-link-hover-color: var(--pt-work-hover);
+            --bs-link-hover-color-rgb: 173, 54, 24;
+            --bs-focus-ring-color: rgba(200, 64, 31, .25);
+        }
+        body { line-height: 1.8; }
+        h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6 { line-height: 1.4; }
+        .text-muted { color: var(--pt-muted) !important; }
+
+        /* カード: 影なし・1px の罫線・角丸 16px */
+        .card {
+            --bs-card-border-color: var(--pt-line);
+            --bs-card-border-radius: var(--pt-radius);
+            --bs-card-inner-border-radius: calc(var(--pt-radius) - 1px);
+            --bs-card-bg: var(--pt-surface);
+        }
+
+        /* ボタン: 主ボタンは作業色 (トマトの朱) */
+        .btn { --bs-btn-border-radius: var(--pt-radius-sm); --bs-btn-font-weight: 500; }
+        .btn-lg { --bs-btn-border-radius: 999px; }
+        .btn-primary {
+            --bs-btn-bg: var(--pt-work); --bs-btn-border-color: var(--pt-work);
+            --bs-btn-hover-bg: var(--pt-work-hover); --bs-btn-hover-border-color: var(--pt-work-hover);
+            --bs-btn-active-bg: var(--pt-work-hover); --bs-btn-active-border-color: var(--pt-work-hover);
+            --bs-btn-disabled-bg: var(--pt-work); --bs-btn-disabled-border-color: var(--pt-work);
+            --bs-btn-focus-shadow-rgb: 200, 64, 31;
+        }
+        .btn-outline-primary {
+            --bs-btn-color: var(--pt-work); --bs-btn-border-color: var(--pt-work);
+            --bs-btn-hover-bg: var(--pt-work); --bs-btn-hover-border-color: var(--pt-work);
+            --bs-btn-active-bg: var(--pt-work); --bs-btn-active-border-color: var(--pt-work);
+            --bs-btn-focus-shadow-rgb: 200, 64, 31;
+        }
+        .btn-check:checked + .btn-outline-primary { color: #fff; }
+        .btn-secondary {
+            --bs-btn-color: var(--pt-ink); --bs-btn-bg: var(--pt-surface); --bs-btn-border-color: var(--pt-line);
+            --bs-btn-hover-color: var(--pt-ink); --bs-btn-hover-bg: var(--pt-chip); --bs-btn-hover-border-color: var(--pt-line);
+            --bs-btn-active-color: var(--pt-ink); --bs-btn-active-bg: var(--pt-chip); --bs-btn-active-border-color: var(--pt-line);
+        }
+        .text-primary { color: var(--pt-work) !important; }
+        .bg-primary { background-color: var(--pt-work) !important; }
+        .bg-success { background-color: var(--pt-break) !important; }
+        .bg-secondary { background-color: var(--pt-muted) !important; }
+        .border-primary { border-color: var(--pt-work) !important; }
+        /* 使い方の案内は注意喚起ではないので、朱の枠ではなく通常の罫線にする */
+        #welcome-guide { border-color: var(--pt-line) !important; }
+
+        /* フォーム部品のフォーカス・チェック色 */
+        .form-control:focus, .form-select:focus, .form-check-input:focus {
+            border-color: #e7a08f;
+            box-shadow: 0 0 0 .25rem rgba(200, 64, 31, .2);
+        }
+        .form-check-input:checked { background-color: var(--pt-work); border-color: var(--pt-work); }
+
+        /* 設定アコーディオン */
+        .accordion {
+            --bs-accordion-border-color: var(--pt-line);
+            --bs-accordion-border-radius: var(--pt-radius);
+            --bs-accordion-inner-border-radius: calc(var(--pt-radius) - 1px);
+            --bs-accordion-active-color: var(--pt-ink);
+            --bs-accordion-active-bg: var(--pt-surface);
+            --bs-accordion-btn-focus-box-shadow: 0 0 0 .25rem rgba(200, 64, 31, .2);
+        }
+        .accordion-button { font-weight: 500; }
+
+        /* 残り時間は Inter Light の等幅数字 (1 秒ごとに桁が揺れない) */
+        #timer {
+            font-family: var(--pt-font-num);
+            font-weight: 300 !important;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: -.02em;
+        }
+
         .yt-url-row.dragging { opacity: 0.4; }
         .yt-url-row .drag-handle { font-weight: bold; }
 
@@ -37,7 +141,7 @@
             position: sticky;
             top: 0;
             z-index: 1020;
-            box-shadow: 0 .25rem .6rem rgba(0, 0, 0, .12);
+            box-shadow: 0 .25rem .75rem rgba(27, 34, 48, .06);
         }
 
         /* YouTube 動画は列幅いっぱい・16:9。高さは画面に収まる範囲で最大化。
